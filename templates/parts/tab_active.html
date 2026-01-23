@@ -1,0 +1,29 @@
+<div id="pos" class="dashboard-tab">
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <div class="card text-center border-danger shadow-sm">
+                <div class="card-body p-2">
+                    <small class="text-danger fw-bold">LIVE P&L</small>
+                    <div id="sum_live" class="fw-bold">₹ 0</div>
+                    <div style="font-size: 0.7rem;" class="text-muted mt-1">Funds: <span id="cap_live" class="fw-bold text-dark">₹ 0</span></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card text-center border-warning shadow-sm">
+                <div class="card-body p-2">
+                    <small class="text-warning text-dark fw-bold">PAPER P&L</small>
+                    <div id="sum_paper" class="fw-bold">₹ 0</div>
+                    <div style="font-size: 0.7rem;" class="text-muted mt-1">Funds: <span id="cap_paper" class="fw-bold text-dark">₹ 0</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="custom-card">
+        <div class="card-head d-flex justify-content-between align-items-center">
+            <span>💼 Active Positions</span>
+            <select id="active_filter" class="form-select form-select-sm" style="width: auto; font-weight: bold;"><option value="ALL">All Trades</option><option value="LIVE">Live</option><option value="PAPER">Paper</option></select>
+        </div>
+        <div class="card-body p-2" id="pos-container"><div class="text-center p-4 text-muted">Loading...</div></div>
+    </div>
+</div>

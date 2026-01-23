@@ -1,0 +1,751 @@
+<div class="modal fade" id="logModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">📄 Trade Logs</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-light" id="logModalBody" style="font-family: monospace; font-size: 0.85rem;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editTradeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">✏️ Edit Trade Protection</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit_trade_id">
+                <label class="pos-grid-label">New Entry Price</label>
+                <input type="number" step="0.05" id="edit_entry" class="form-control mb-3 text-primary fw-bold">
+                
+                <label class="pos-grid-label">New Stop Loss</label>
+                <input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold">
+                
+                <label class="pos-grid-label">Trailing SL (Points)</label>
+                <div class="input-group mb-3">
+                    <input type="number" step="0.05" id="edit_trail" class="form-control text-info fw-bold" placeholder="0 to disable">
+                    <select id="edit_trail_mode" class="form-select fw-bold" style="max-width: 130px;">
+                        <option value="0">Unlimited</option>
+                        <option value="1">Up-to Entry</option>
+                        <option value="2">Up-to T1</option>
+                        <option value="3">Up-to T2</option>
+                        <option value="4">Up-to T3</option>
+                    </select>
+                </div>
+
+                <label class="pos-grid-label">Exit Multiplier (Auto-Calc Targets)</label>
+                <input type="number" id="edit_exit_mult" class="form-control mb-3 fw-bold text-center border-info" value="1" min="1" max="10">
+
+                <label class="pos-grid-label">New Targets (Price | Active | Exit Lots)</label>
+                
+                <div class="input-group mb-2">
+                    <span class="input-group-text text-success">T1</span>
+                    <input type="number" step="0.05" id="edit_t1" class="form-control">
+                    <div class="input-group-text">
+                        <input class="form-check-input mt-0" type="checkbox" id="check_t1" checked>
+                    </div>
+                    <input type="number" id="lot_t1" class="form-control" placeholder="Lots" style="max-width: 70px;">
+                    <div class="input-group-text" title="Exit All">
+                        <input class="form-check-input mt-0" type="checkbox" id="full_t1"> <span style="font-size:0.7rem; margin-left:3px;">Full</span>
+                    </div>
+                    <div class="input-group-text" title="Trail SL to Entry">
+                        <input class="form-check-input mt-0" type="checkbox" id="cost_t1"> <span style="font-size:0.7rem; margin-left:2px;">C</span>
+                    </div>
+                </div>
+
+                <div class="input-group mb-2">
+                    <span class="input-group-text text-success">T2</span>
+                    <input type="number" step="0.05" id="edit_t2" class="form-control">
+                    <div class="input-group-text">
+                        <input class="form-check-input mt-0" type="checkbox" id="check_t2" checked>
+                    </div>
+                    <input type="number" id="lot_t2" class="form-control" placeholder="Lots" style="max-width: 70px;">
+                    <div class="input-group-text" title="Exit All">
+                        <input class="form-check-input mt-0" type="checkbox" id="full_t2"> <span style="font-size:0.7rem; margin-left:3px;">Full</span>
+                    </div>
+                    <div class="input-group-text" title="Trail SL to Entry">
+                        <input class="form-check-input mt-0" type="checkbox" id="cost_t2"> <span style="font-size:0.7rem; margin-left:2px;">C</span>
+                    </div>
+                </div>
+
+                <div class="input-group mb-2">
+                    <span class="input-group-text text-success">T3</span>
+                    <input type="number" step="0.05" id="edit_t3" class="form-control">
+                    <div class="input-group-text">
+                        <input class="form-check-input mt-0" type="checkbox" id="check_t3" checked>
+                    </div>
+                    <input type="number" id="lot_t3" class="form-control" placeholder="Lots" style="max-width: 70px;">
+                    <div class="input-group-text" title="Exit All">
+                        <input class="form-check-input mt-0" type="checkbox" id="full_t3"> <span style="font-size:0.7rem; margin-left:3px;">Full</span>
+                    </div>
+                    <div class="input-group-text" title="Trail SL to Entry">
+                        <input class="form-check-input mt-0" type="checkbox" id="cost_t3"> <span style="font-size:0.7rem; margin-left:2px;">C</span>
+                    </div>
+                </div>
+
+                <hr>
+                <h6 class="text-secondary fw-bold">Manage Position (Lots)</h6>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="pos-grid-label text-success">Add Lots (Avg)</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" id="man_add_lots" class="form-control fw-bold" placeholder="Qty">
+                            <button class="btn btn-success" onclick="managePos('ADD')">Buy</button>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label text-warning">Exit Lots (Part)</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" id="man_exit_lots" class="form-control fw-bold" placeholder="Qty">
+                            <button class="btn btn-warning" onclick="managePos('EXIT')">Sell</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary w-100" onclick="saveTradeUpdate()">💾 Update Protection</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">⚙️ Global Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general">General</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-live">Live</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-telegram">🔔 Notifications</button></li>
+                </ul>
+                <div class="tab-content" id="settingTabsContent">
+                    <div class="tab-pane fade show active" id="tab-general">
+                        <h6 class="text-primary">Watchlist</h6>
+                        <div class="input-group mb-3">
+                            <input type="text" id="new_watch_sym" class="form-control" placeholder="Symbol (e.g. RELIANCE)" list="sym_list">
+                            <button class="btn btn-outline-secondary" type="button" onclick="addToWatchlist('#new_watch_sym')">Add</button>
+                        </div>
+                        <div class="mb-3">
+                            <select id="remove_watch_sym" class="form-select" onchange="removeFromWatchlist('remove_watch_sym')">
+                                <option value="">Select to Remove...</option>
+                            </select>
+                        </div>
+                        <hr>
+
+                        <h6 class="mb-2">Active Exchanges (For Search)</h6>
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NSE" id="exch_NSE"><label class="form-check-label" for="exch_NSE">NSE</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NFO" id="exch_NFO"><label class="form-check-label" for="exch_NFO">NFO</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="MCX" id="exch_MCX"><label class="form-check-label" for="exch_MCX">MCX</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="CDS" id="exch_CDS"><label class="form-check-label" for="exch_CDS">CDS</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BSE" id="exch_BSE"><label class="form-check-label" for="exch_BSE">BSE</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BFO" id="exch_BFO"><label class="form-check-label" for="exch_BFO">BFO</label></div>
+                        </div>
+                        
+                        <h6 class="mb-2 text-warning border-top pt-2">Default Broadcast Channels</h6>
+                        <p class="small text-muted mb-2">Select which channels are checked by default on the Trade Panel.</p>
+                        <div class="d-flex gap-3 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="def_vip">
+                                <label class="form-check-label fw-bold small" for="def_vip">VIP</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="def_free">
+                                <label class="form-check-label fw-bold small" for="def_free">Free</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="def_z2h">
+                                <label class="form-check-label fw-bold small" for="def_z2h">Z2H</label>
+                            </div>
+                        </div>
+
+                        <h6 class="mb-2 text-primary border-top pt-2">Startup Configuration</h6>
+                        
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="first_trade_toggle">
+                            <label class="form-check-label fw-bold" for="first_trade_toggle">1st Trade: Force Shadow & Free Only</label>
+                            <div class="form-text small">If enabled, the first trade of the day will default to Shadow Mode and Free Channel only.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Default Trade Mode</label>
+                            <select id="def_trade_mode" class="form-select">
+                                <option value="PAPER">Paper Trading</option>
+                                <option value="SHADOW">Shadow Trading</option>
+                                <option value="LIVE">Live Trading</option>
+                            </select>
+                            <div class="form-text">This mode will be auto-selected when you open the dashboard.</div>
+                        </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="tab-paper">
+                        <h6 class="mb-2 text-warning">Paper Trade Config</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="pos-grid-label">Default Order Type</label><select id="paper_order_type" class="form-select"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option></select></div>
+                            <div class="col-6"><label class="pos-grid-label">Trail Limit Default</label><select id="paper_trail_limit" class="form-select"><option value="0">Unlimited</option><option value="1">Up-to Entry</option><option value="2">Up-to T1</option><option value="3">Up-to T2</option><option value="4">Up-to T3</option></select></div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="pos-grid-label">Default Trailing (Pts)</label><input type="number" step="0.5" id="paper_def_trail" class="form-control" placeholder="0"></div>
+                            <div class="col-6"><label class="pos-grid-label">Exit Multiplier</label><input type="number" id="paper_exit_mult" class="form-control" value="1" min="1" max="10"></div>
+                        </div>
+                        <hr class="my-2">
+                        <h6 class="pos-grid-label text-danger">⚠️ Risk Management (Global)</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="pos-grid-label">Universal Sq.Off Time</label><input type="time" id="paper_time" class="form-control"></div>
+                            <div class="col-6"><label class="pos-grid-label">Max Daily Loss (Rs)</label><input type="number" id="paper_max_loss" class="form-control" placeholder="0 to Disable"></div>
+                        </div>
+                        <label class="pos-grid-label text-success">Profit Locking (Global Trailing)</label>
+                        <div class="input-group mb-3">
+                            <span class="input-group-text">Reach</span><input type="number" id="paper_pl_start" class="form-control" placeholder="2000">
+                            <span class="input-group-text">Lock</span><input type="number" id="paper_pl_min" class="form-control" placeholder="1000">
+                            <span class="input-group-text">Trail</span><input type="number" id="paper_pl_trail" class="form-control" placeholder="500">
+                        </div>
+                        <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="paper_qty_mult" class="form-control mb-2" value="1" min="1">
+                        <label class="pos-grid-label">Target Config (Ratio | Active | Lots | Full | Cost)</label>
+                        <div class="input-group mb-1"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="paper_a1"></div> <input type="number" id="paper_l1" class="form-control" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Full"><input class="form-check-input mt-0" type="checkbox" id="paper_f1"></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="paper_c1"><span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <div class="input-group mb-1"> <span class="input-group-text">T2</span><input type="number" step="0.1" id="paper_r2" class="form-control">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="paper_a2"></div> <input type="number" id="paper_l2" class="form-control" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Full"><input class="form-check-input mt-0" type="checkbox" id="paper_f2"></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="paper_c2"><span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <div class="input-group mb-2"> <span class="input-group-text">T3</span><input type="number" step="0.1" id="paper_r3" class="form-control">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="paper_a3"></div> <input type="number" id="paper_l3" class="form-control" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Full"><input class="form-check-input mt-0" type="checkbox" id="paper_f3"></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="paper_c3"><span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        
+                        <label class="pos-grid-label">Bulk Update (SYMBOL|SL|T1|T2|T3)</label> 
+                        <textarea id="paper_bulk_sl" class="form-control mb-2" rows="2" placeholder="ACC|8|4|8|16&#10;RELIANCE|20|10|20|40"></textarea> 
+                        <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('PAPER')">Apply Bulk Data</button>
+                        
+                        <div class="input-group mb-2">
+                            <input type="text" id="paper_set_sym" class="form-control" placeholder="Sym" style="max-width: 90px;">
+                            <input type="number" id="paper_set_sl" class="form-control" placeholder="SL">
+                            <input type="number" id="paper_set_t1" class="form-control" placeholder="T1">
+                            <input type="number" id="paper_set_t2" class="form-control" placeholder="T2">
+                            <input type="number" id="paper_set_t3" class="form-control" placeholder="T3">
+                            <button class="btn btn-primary" onclick="saveSymSL('PAPER')">Add</button>
+                        </div>
+                        <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
+                            <table class="table table-bordered table-sm mt-2 sl-table">
+                                <thead class="table-light"><tr><th>Sym</th><th>SL</th><th>T1</th><th>T2</th><th>T3</th><th>Act</th></tr></thead>
+                                <tbody id="paper_sl_table_body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="tab-live">
+                        <h6 class="mb-2 text-danger">Live Trade Config</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="pos-grid-label">Default Order Type</label><select id="live_order_type" class="form-select"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option></select></div>
+                            <div class="col-6"><label class="pos-grid-label">Trail Limit Default</label><select id="live_trail_limit" class="form-select"><option value="0">Unlimited</option><option value="1">Up-to Entry</option><option value="2">Up-to T1</option><option value="3">Up-to T2</option><option value="4">Up-to T3</option></select></div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="pos-grid-label">Default Trailing (Pts)</label><input type="number" step="0.5" id="live_def_trail" class="form-control" placeholder="0"></div>
+                            <div class="col-6"><label class="pos-grid-label">Exit Multiplier</label><input type="number" id="live_exit_mult" class="form-control" value="1" min="1" max="10"></div>
+                        </div>
+                        <hr class="my-2">
+                        <h6 class="pos-grid-label text-danger">⚠️ Risk Management (Global)</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="pos-grid-label">Universal Sq.Off Time</label><input type="time" id="live_time" class="form-control"></div>
+                            <div class="col-6"><label class="pos-grid-label">Max Daily Loss (Rs)</label><input type="number" id="live_max_loss" class="form-control" placeholder="0 to Disable"></div>
+                        </div>
+                        <label class="pos-grid-label text-success">Profit Locking (Global Trailing)</label>
+                        <div class="input-group mb-3">
+                            <span class="input-group-text">Reach</span><input type="number" id="live_pl_start" class="form-control" placeholder="2000">
+                            <span class="input-group-text">Lock</span><input type="number" id="live_pl_min" class="form-control" placeholder="1000">
+                            <span class="input-group-text">Trail</span><input type="number" id="live_pl_trail" class="form-control" placeholder="500">
+                        </div>
+                        <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="live_qty_mult" class="form-control mb-2" value="1" min="1">
+                        <label class="pos-grid-label">Target Config (Ratio | Active | Lots | Full | Cost)</label>
+                        <div class="input-group mb-1"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="live_a1"></div> <input type="number" id="live_l1" class="form-control" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Full"><input class="form-check-input mt-0" type="checkbox" id="live_f1"></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="live_c1"><span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <div class="input-group mb-1"> <span class="input-group-text">T2</span><input type="number" step="0.1" id="live_r2" class="form-control">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="live_a2"></div> <input type="number" id="live_l2" class="form-control" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Full"><input class="form-check-input mt-0" type="checkbox" id="live_f2"></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="live_c2"><span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <div class="input-group mb-2"> <span class="input-group-text">T3</span><input type="number" step="0.1" id="live_r3" class="form-control">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="live_a3"></div> <input type="number" id="live_l3" class="form-control" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Full"><input class="form-check-input mt-0" type="checkbox" id="live_f3"></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="live_c3"><span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        
+                        <label class="pos-grid-label">Bulk Update (SYMBOL|SL|T1|T2|T3)</label> 
+                        <textarea id="live_bulk_sl" class="form-control mb-2" rows="2" placeholder="ACC|8|4|8|16&#10;RELIANCE|20|10|20|40"></textarea> 
+                        <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('LIVE')">Apply Bulk Data</button>
+                        
+                        <div class="input-group mb-2">
+                            <input type="text" id="live_set_sym" class="form-control" placeholder="Sym" style="max-width: 90px;">
+                            <input type="number" id="live_set_sl" class="form-control" placeholder="SL">
+                            <input type="number" id="live_set_t1" class="form-control" placeholder="T1">
+                            <input type="number" id="live_set_t2" class="form-control" placeholder="T2">
+                            <input type="number" id="live_set_t3" class="form-control" placeholder="T3">
+                            <button class="btn btn-primary" onclick="saveSymSL('LIVE')">Add</button>
+                        </div>
+                        <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
+                            <table class="table table-bordered table-sm mt-2 sl-table">
+                                <thead class="table-light"><tr><th>Sym</th><th>SL</th><th>T1</th><th>T2</th><th>T3</th><th>Act</th></tr></thead>
+                                <tbody id="live_sl_table_body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="tab-telegram">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="m-0 text-primary"><i class="fab fa-telegram"></i> Telegram Config</h6>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="tg_enable">
+                                <label class="form-check-label fw-bold" for="tg_enable">Enable</label>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="pos-grid-label">Bot Token (From BotFather)</label>
+                            <input type="text" id="tg_bot_token" class="form-control" placeholder="e.g. 123456:AbCdEf...">
+                        </div>
+                        
+                        <h6 class="text-secondary border-bottom pb-1 mb-2 mt-3" style="font-size:0.8rem;">1. Main Channel (All Updates)</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="pos-grid-label">Trade Channel ID</label>
+                                <input type="text" id="tg_channel_id" class="form-control" placeholder="-100...">
+                            </div>
+                            <div class="col-6">
+                                <label class="pos-grid-label">System Channel ID</label>
+                                <input type="text" id="tg_system_channel_id" class="form-control" placeholder="Optional">
+                            </div>
+                        </div>
+
+                        <h6 class="text-secondary border-bottom pb-1 mb-2 mt-3" style="font-size:0.8rem;">2. Additional Channels (New / Active / Update Only)</h6>
+                        
+                        <div class="mb-2">
+                            <label class="pos-grid-label text-warning">⭐ VIP Channel ID</label>
+                            <input type="text" id="tg_vip_channel_id" class="form-control" placeholder="-100...">
+                        </div>
+                        
+                        <div class="mb-2">
+                            <label class="pos-grid-label text-success">🆓 Free Channel ID</label>
+                            <input type="text" id="tg_free_channel_id" class="form-control" placeholder="-100...">
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-8">
+                                <label class="pos-grid-label text-info">🚀 ZeroToHero ID</label>
+                                <input type="text" id="tg_z2h_channel_id" class="form-control" placeholder="-100...">
+                            </div>
+                            <div class="col-4">
+                                <label class="pos-grid-label text-info">Name</label>
+                                <input type="text" id="tg_z2h_channel_name" class="form-control" placeholder="Zero To Hero">
+                            </div>
+                        </div>
+
+                        <hr>
+                        <h6 class="text-primary mb-3">📝 Message Customization</h6>
+                        
+                        <script>
+                            function insertAtCursor(myFieldId, myValue) {
+                                var myField = document.getElementById(myFieldId);
+                                if (document.selection) {
+                                    myField.focus(); sel = document.selection.createRange(); sel.text = myValue;
+                                } else if (myField.selectionStart || myField.selectionStart == '0') {
+                                    var startPos = myField.selectionStart; var endPos = myField.selectionEnd;
+                                    myField.value = myField.value.substring(0, startPos) + myValue + myField.value.substring(endPos, myField.value.length);
+                                } else { myField.value += myValue; }
+                            }
+                            function setActiveTpl(id) { window.activeTplId = id; }
+                            function insTpl(val) { if(window.activeTplId) insertAtCursor(window.activeTplId, val); }
+                        </script>
+                        <div class="d-flex gap-1 mb-2 flex-wrap">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('<b>')"><b>B</b></button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('<i>')"><i>I</i></button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('<code>')">Code</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('{symbol}')">{Sym}</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('{time}')">{Time}</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('🚀')">🚀</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('🟢')">🟢</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('🔴')">🔴</button>
+                        </div>
+
+                        <div class="accordion mb-3" id="tgTemplatesAccordion">
+                             <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFreeH">
+                                        Free Channel Header (1st Message)
+                                    </button>
+                                </h2>
+                                <div id="collapseFreeH" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                        <textarea id="tpl_free_header" class="form-control" rows="3" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_free_header')"></textarea>
+                                        <div class="form-text small">Global Placeholders: {symbol}, {time}, {entry_time}, {date}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNew">
+                                        New Trade Alert
+                                    </button>
+                                </h2>
+                                <div id="collapseNew" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                        <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_new" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_new" class="form-control" rows="6" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_new')"></textarea>
+                                        <div class="form-text small">
+                                            <b>Global:</b> {symbol}, {mode}, {order_type}, {qty}, {entry}, {sl}, {targets}, {time}, {icon}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAct">
+                                        Order Activated
+                                    </button>
+                                </h2>
+                                <div id="collapseAct" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_active" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_active" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_active')"></textarea>
+                                        <div class="form-text small">Specific: {price} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTgt">
+                                        Target Hit
+                                    </button>
+                                </h2>
+                                <div id="collapseTgt" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_tgt" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_tgt" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_tgt')"></textarea>
+                                        <div class="form-text small">Specific: {t_num}, {price}, {pot_pnl} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSL">
+                                        Stop Loss Hit
+                                    </button>
+                                </h2>
+                                <div id="collapseSL" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_sl" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_sl" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_sl')"></textarea>
+                                        <div class="form-text small">Specific: {exit_price}, {pnl} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                             <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseHigh">
+                                        New High Made
+                                    </button>
+                                </h2>
+                                <div id="collapseHigh" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_high" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_high" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_high')"></textarea>
+                                        <div class="form-text small">Specific: {price}, {pot_pnl} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                             <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseUpd">
+                                        Trade Update
+                                    </button>
+                                </h2>
+                                <div id="collapseUpd" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_update" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_update" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_update')"></textarea>
+                                        <div class="form-text small">Specific: {update_text} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                        
+                        <hr>
+                        <button class="btn btn-outline-primary w-100" onclick="testTelegram()">📩 Send Test Message (To Main)</button>
+                    </div>
+
+                </div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">📤 Import Past Trade</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="pos-grid-label">WATCHLIST (Auto-Populate)</label>
+                    <span id="imp_ltp" class="badge bg-warning text-dark shadow-sm" style="font-size: 0.8rem;">LTP: 0.00</span>
+                </div>
+
+                <div class="input-group mb-2">
+                    <select id="imp_watch" class="form-select form-select-sm fw-bold border-secondary" style="width: auto;" onchange="loadWatchlist('imp_watch', '#imp_sym')">
+                        <option value="">📺 Select</option>
+                    </select>
+                </div>
+
+                <div class="input-group mb-2">
+                    <input type="text" id="imp_sym" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list">
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Expiry</label>
+                        <select id="imp_exp" class="form-select"></select>
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">Strike</label>
+                        <select id="imp_str" class="form-select"></select>
+                    </div>
+                </div>
+
+                <div class="btn-group w-100 btn-group-check mb-2" role="group">
+                    <input type="radio" class="btn-check" name="imp_type" id="it_ce" value="CE" checked autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="it_ce">CE</label>
+                    <input type="radio" class="btn-check" name="imp_type" id="it_pe" value="PE" autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="it_pe">PE</label>
+                    <input type="radio" class="btn-check" name="imp_type" id="it_fut" value="FUT" autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="it_fut">FUT</label>
+                </div>
+
+                <label class="pos-grid-label">Entry Time (Past)</label>
+                <input type="datetime-local" id="imp_time" class="form-control mb-2">
+
+                <label class="pos-grid-label">📡 Broadcast To</label>
+                <div class="btn-group w-100 btn-group-check mb-2" role="group">
+                    <input type="radio" class="btn-check" name="imp_channel" id="ic_main" value="main" checked autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="ic_main">Main</label>
+
+                    <input type="radio" class="btn-check" name="imp_channel" id="ic_vip" value="vip" autocomplete="off">
+                    <label class="btn btn-outline-warning btn-sm" for="ic_vip">VIP</label>
+
+                    <input type="radio" class="btn-check" name="imp_channel" id="ic_free" value="free" autocomplete="off">
+                    <label class="btn btn-outline-success btn-sm" for="ic_free">Free</label>
+
+                    <input type="radio" class="btn-check" name="imp_channel" id="ic_z2h" value="z2h" autocomplete="off">
+                    <label class="btn btn-outline-info btn-sm" for="ic_z2h">Z2H</label>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Quantity</label>
+                        <div class="input-group">
+                            <button class="btn btn-outline-secondary btn-sm fw-bold" type="button" onclick="adjImpQty(-1)">-</button>
+                            <input type="number" id="imp_qty" class="form-control fw-bold text-center" placeholder="Qty">
+                            <button class="btn btn-outline-secondary btn-sm fw-bold" type="button" onclick="adjImpQty(1)">+</button>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">Entry Price</label>
+                        <input type="number" step="0.05" id="imp_price" class="form-control fw-bold text-primary">
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="pos-grid-label text-danger">SL Points</label>
+                        <input type="number" step="0.5" id="imp_sl_pts" class="form-control fw-bold text-danger">
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label text-danger">SL Price</label>
+                        <input type="number" step="0.05" id="imp_sl_price" class="form-control fw-bold text-danger">
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Trailing SL</label>
+                        <input type="number" step="0.5" id="imp_trail_sl" class="form-control text-info fw-bold" placeholder="0">
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">Trail Limit</label>
+                        <select id="imp_trail_limit" class="form-select fw-bold">
+                            <option value="0">Unlimited</option>
+                            <option value="1">Up-to Entry</option>
+                            <option value="2">Up-to T1</option>
+                            <option value="3">Up-to T2</option>
+                            <option value="4">Up-to T3</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="pos-grid-label">Exit Multiplier</label>
+                    <input type="number" id="imp_exit_mult" class="form-control border-info fw-bold text-center" value="1" min="1" max="10">
+                </div>
+
+                <label class="pos-grid-label text-success">Targets (Price | Active | Lots | Full)</label>
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text text-success fw-bold">T1</span>
+                    <input type="number" step="0.05" id="imp_t1" class="form-control text-success fw-bold">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="imp_t1_active"></div>
+                    <input type="number" id="imp_t1_lots" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="imp_t1_full"></div>
+                    <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="imp_t1_cost"> <span style="font-size:0.6rem;">C</span></div>
+                </div>
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text text-success fw-bold">T2</span>
+                    <input type="number" step="0.05" id="imp_t2" class="form-control text-success fw-bold">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="imp_t2_active"></div>
+                    <input type="number" id="imp_t2_lots" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="imp_t2_full"></div>
+                    <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="imp_t2_cost"> <span style="font-size:0.6rem;">C</span></div>
+                </div>
+                <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text text-success fw-bold">T3</span>
+                    <input type="number" step="0.05" id="imp_t3" class="form-control text-success fw-bold">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="imp_t3_active"></div>
+                    <input type="number" id="imp_t3_lots" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="imp_t3_full"></div>
+                    <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="imp_t3_cost"> <span style="font-size:0.6rem;">C</span></div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="calculateImportRisk()">Recalc Risk</button>
+                <button type="button" class="btn btn-primary w-100" onclick="submitImport()">📥 Check & Import</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="scenarioModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">🧪 Scenario Backtest</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">Apply these settings to ALL visible closed trades to see hypothetical results.</p>
+                
+                <label class="pos-grid-label">1. Trail to Cost</label>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="sim_trail_t1">
+                    <label class="form-check-label fw-bold">Trail SL to Entry after T1 Hit</label>
+                </div>
+
+                <label class="pos-grid-label">2. Exit Multiplier</label>
+                <input type="number" id="sim_exit_mult" class="form-control mb-3" value="1" min="1" max="10">
+
+                <label class="pos-grid-label">3. Target Exit Config (Lots)</label>
+                <div class="input-group mb-2">
+                    <span class="input-group-text">T1</span>
+                    <input type="number" id="sim_l1" class="form-control" placeholder="Lots">
+                    <div class="input-group-text">Full <input class="form-check-input ms-1" type="checkbox" id="sim_f1"></div>
+                </div>
+                <div class="input-group mb-2">
+                    <span class="input-group-text">T2</span>
+                    <input type="number" id="sim_l2" class="form-control" placeholder="Lots">
+                    <div class="input-group-text">Full <input class="form-check-input ms-1" type="checkbox" id="sim_f2"></div>
+                </div>
+                <div class="input-group mb-3">
+                    <span class="input-group-text">T3</span>
+                    <input type="number" id="sim_l3" class="form-control" placeholder="Lots">
+                    <div class="input-group-text">Full <input class="form-check-input ms-1" type="checkbox" id="sim_f3"></div>
+                </div>
+
+                <div class="alert alert-info py-2 small" id="sim_results_box" style="display:none;">
+                    Processed: <span id="sim_progress">0/0</span><br>
+                    <strong>Hypothetical Net P/L: <span id="sim_net_pnl">0</span></strong>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary w-100" onclick="runBatchSimulation()">🚀 Run Analysis</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="simResultModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title">🧪 Simulation Results</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <h6 class="text-muted">Hypothetical Performance</h6>
+        <h2 class="display-6 fw-bold" style="color: #6f42c1;">
+            <span id="sim_res_total">₹ 0.00</span>
+        </h2>
+        <div class="h5 mb-4">
+            (<span id="sim_res_diff">vs Original</span>)
+        </div>
+        
+        <div class="row g-2">
+            <div class="col-6">
+                <div class="p-2 border rounded bg-success bg-opacity-10">
+                    <div class="fw-bold text-success" id="sim_res_improved">0</div>
+                    <div class="small text-muted">Improved 🚀</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 border rounded bg-danger bg-opacity-10">
+                    <div class="fw-bold text-danger" id="sim_res_worsened">0</div>
+                    <div class="small text-muted">Worsened 📉</div>
+                </div>
+            </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>

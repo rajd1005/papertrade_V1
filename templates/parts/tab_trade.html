@@ -1,0 +1,260 @@
+<div id="trade" class="dashboard-tab active">
+    <form action="/trade" method="post" id="tradeForm">
+        <div class="custom-card">
+            <div class="card-head"><span>New Order</span> <span id="inst_ltp" class="badge bg-primary">LTP: 0</span></div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="pos-grid-label">WATCHLIST</label>
+                        <div class="input-group input-group-sm" style="width: auto;">
+                            <select id="trade_watch" class="form-select fw-bold border-secondary" onchange="loadWatchlist('trade_watch', '#sym')"><option value="">📺 Select</option></select>
+                            <button class="btn btn-outline-danger" type="button" onclick="removeFromWatchlist('trade_watch')">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list" required>
+                        <button class="btn btn-outline-secondary" type="button" onclick="addToWatchlist('#sym')">➕</button>
+                    </div>
+                    <datalist id="sym_list"></datalist>
+                </div>
+
+                <div class="mb-3">
+                    <div class="btn-group w-100 btn-group-check" role="group">
+                        <input type="radio" class="btn-check" name="type" id="t_ce" value="CE" autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="t_ce">CE</label>
+                        <input type="radio" class="btn-check" name="type" id="t_pe" value="PE" autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="t_pe">PE</label>
+                        <input type="radio" class="btn-check" name="type" id="t_fut" value="FUT" autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="t_fut">FUT</label>
+                        <input type="radio" class="btn-check" name="type" id="t_eq" value="EQ" autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="t_eq">EQ</label>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6"><select name="expiry" id="exp" class="form-select"></select></div>
+                    <div class="col-6"><select name="strike" id="str" class="form-select"></select></div>
+                </div>
+                
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="pos-grid-label">QTY (<span id="lot">1</span> x <span id="qty_mult_disp">1</span>)</label>
+                        <div class="input-group">
+                            <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#qty', -1)">-</button>
+                            <input type="number" name="qty" id="qty" class="form-control fw-bold text-center" value="1">
+                            <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#qty', 1)">+</button>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">EXIT MULTIPLIER</label>
+                        <input type="number" name="exit_multiplier" id="exit_mult" class="form-control fw-bold text-center border-info" value="1" min="1" max="10">
+                    </div>
+                </div>
+                
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="pos-grid-label">ORDER TYPE</label>
+                        <select name="order_type" id="ord" class="form-select fw-bold"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select>
+                    </div>
+                    <div class="col-6" id="lim_box">
+                         <label class="pos-grid-label">LIMIT PRICE</label>
+                         <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control text-primary fw-bold" placeholder="Limit Price">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="custom-card mb-3" id="shadow_live_card" style="display:none; border: 2px solid #dc3545; background-color: rgba(220, 53, 69, 0.05);">
+            <div class="card-head text-danger">⚡ Projected P&L (LIVE SYSTEM)</div>
+            <div class="card-body">
+                 <div class="row g-2 align-items-center mb-2">
+                    <div class="col-6">
+                        <small class="text-danger fw-bold">SL Points (Live)</small>
+                        <input type="number" step="0.05" id="live_sl_pts" name="live_sl_points" class="form-control fw-bold text-center" oninput="calcLiveSLPriceFromPts()">
+                    </div>
+                    <div class="col-6">
+                         <small class="text-danger fw-bold">SL Price (Edit)</small>
+                         <input type="number" step="0.05" id="live_p_sl" class="form-control text-center text-danger fw-bold border-danger" oninput="calcLiveSLPtsFromPrice()">
+                    </div>
+                </div>
+                
+                <div class="text-center mb-2">
+                     <small class="text-muted fw-bold">Est. Loss: </small>
+                     <span id="live_pnl_sl" class="fw-bold text-danger">₹ 0</span>
+                </div>
+
+                <div class="row g-2 align-items-center mb-2">
+                    <div class="col-3">
+                        <small class="text-muted" style="font-size:0.7rem;">Trail Pts</small>
+                        <input type="number" step="0.05" name="live_trailing_sl" id="live_trail_sl" class="form-control form-control-sm text-center">
+                    </div>
+                    <div class="col-3">
+                        <small class="text-muted" style="font-size:0.7rem;">Limit</small>
+                        <select name="live_sl_to_entry" id="live_sl_to_entry" class="form-select form-select-sm text-center px-0">
+                             <option value="0">Unlim</option>
+                             <option value="1">Entry</option>
+                             <option value="2">T1</option>
+                             <option value="3">T2</option>
+                             <option value="4">T3</option>
+                        </select>
+                    </div>
+                    <div class="col-3 px-1">
+                        <small class="text-muted" style="font-size:0.7rem;">Live Qty</small>
+                        <div class="input-group input-group-sm">
+                             <button class="btn btn-outline-secondary px-0" style="width:20px;" type="button" onclick="adjLiveQty(-1)">-</button>
+                             <input type="number" id="live_qty" name="live_qty" class="form-control px-1 text-center fw-bold p-0" value="1" oninput="calcLivePnl()">
+                             <button class="btn btn-outline-secondary px-0" style="width:20px;" type="button" onclick="adjLiveQty(1)">+</button>
+                        </div>
+                    </div>
+                    <div class="col-3">
+                        <small class="text-muted" style="font-size:0.7rem;">Ex Mult</small>
+                        <input type="number" name="live_exit_multiplier" id="live_exit_mult" class="form-control form-control-sm text-center">
+                    </div>
+                </div>
+                
+                <div class="row g-2 text-center">
+                    <div class="col-4 px-1">
+                        <small class="text-danger fw-bold">T1 (<span id="live_r_t1">0.5</span>x)</small>
+                        <input type="number" step="0.05" id="live_p_t1" name="live_t1_price" class="form-control form-control-sm text-center text-danger fw-bold mb-1" oninput="calcLivePnl()">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="live_t1_active" id="live_t1_active"></div>
+                            <input type="number" name="live_t1_lots" id="live_t1_lots" class="form-control px-1 text-center" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" name="live_t1_full" id="live_t1_full"> <span style="font-size:0.6rem;">F</span></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" name="live_t1_cost" id="live_t1_cost"> <span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <span id="live_pnl_t1" class="small fw-bold text-success">₹ 0</span>
+                    </div>
+                    <div class="col-4 px-1">
+                        <small class="text-danger fw-bold">T2 (<span id="live_r_t2">1.0</span>x)</small>
+                        <input type="number" step="0.05" id="live_p_t2" name="live_t2_price" class="form-control form-control-sm text-center text-danger fw-bold mb-1" oninput="calcLivePnl()">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="live_t2_active" id="live_t2_active"></div>
+                            <input type="number" name="live_t2_lots" id="live_t2_lots" class="form-control px-1 text-center" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" name="live_t2_full" id="live_t2_full"> <span style="font-size:0.6rem;">F</span></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" name="live_t2_cost" id="live_t2_cost"> <span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <span id="live_pnl_t2" class="small fw-bold text-success">₹ 0</span>
+                    </div>
+                    <div class="col-4 px-1">
+                        <small class="text-danger fw-bold">T3 (<span id="live_r_t3">1.5</span>x)</small>
+                        <input type="number" step="0.05" id="live_p_t3" name="live_t3_price" class="form-control form-control-sm text-center text-danger fw-bold mb-1" oninput="calcLivePnl()">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="live_t3_active" id="live_t3_active"></div>
+                            <input type="number" name="live_t3_lots" id="live_t3_lots" class="form-control px-1 text-center" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" name="live_t3_full" id="live_t3_full"> <span style="font-size:0.6rem;">F</span></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" name="live_t3_cost" id="live_t3_cost"> <span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <span id="live_pnl_t3" class="small fw-bold text-success">₹ 0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="custom-card" id="main_pnl_card">
+            <div class="card-head" id="main_pnl_title">🛡️ Projected P&L</div>
+            <div class="card-body">
+                <div class="row g-2 align-items-center mb-3">
+                        <div class="col-6">
+                            <label class="pos-grid-label">SL Points (Auto)</label>
+                            <input type="number" id="sl_pts" name="sl_points" class="form-control fw-bold text-center" value="20" oninput="calcSLPriceFromPts('#sl_pts', '#p_sl')">
+                        </div>
+                        <div class="col-6">
+                            <label class="pos-grid-label">SL Price (Edit)</label>
+                            <input type="number" step="0.05" id="p_sl" class="form-control text-center text-danger fw-bold border-danger" oninput="calcSLPtsFromPrice('#p_sl', '#sl_pts')">
+                        </div>
+                </div>
+
+                <div class="row g-2 align-items-center mb-3">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Trailing SL (Points)</label>
+                        <input type="number" step="0.05" name="trailing_sl" id="trail_sl" class="form-control fw-bold text-center text-info" placeholder="0">
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">Trail Limit</label>
+                        <select name="sl_to_entry" class="form-select fw-bold text-center">
+                             <option value="0">Unlimited</option>
+                             <option value="1">Up-to Entry</option>
+                             <option value="2">Up-to T1</option>
+                             <option value="3">Up-to T2</option>
+                             <option value="4">Up-to T3</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row g-2 text-center">
+                    <div class="col-4 px-1">
+                        <small class="text-success fw-bold">T1 (<span id="r_t1">0.5</span>x)</small>
+                        <input type="number" step="0.05" id="p_t1" name="t1_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t1')">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="t1_active" id="t1_active" checked></div>
+                            <input type="number" name="t1_lots" id="t1_lots" class="form-control px-1 text-center" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="t1_full"> <span style="font-size:0.6rem;">F</span></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" name="t1_cost"> <span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <span id="pnl_t1" class="pnl-green">₹ 0</span>
+                    </div>
+                    <div class="col-4 px-1">
+                        <small class="text-success fw-bold">T2 (<span id="r_t2">1.0</span>x)</small>
+                        <input type="number" step="0.05" id="p_t2" name="t2_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t2')">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="t2_active" id="t2_active" checked></div>
+                            <input type="number" name="t2_lots" id="t2_lots" class="form-control px-1 text-center" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="t2_full"> <span style="font-size:0.6rem;">F</span></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" name="t2_cost"> <span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <span id="pnl_t2" class="pnl-green">₹ 0</span>
+                    </div>
+                    <div class="col-4 px-1">
+                        <small class="text-success fw-bold">T3 (<span id="r_t3">1.5</span>x)</small>
+                        <input type="number" step="0.05" id="p_t3" name="t3_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t3')">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="t3_active" id="t3_active" checked></div>
+                            <input type="number" name="t3_lots" id="t3_lots" class="form-control px-1 text-center" placeholder="Lots">
+                            <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="t3_full"> <span style="font-size:0.6rem;">F</span></div>
+                            <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" name="t3_cost"> <span style="font-size:0.6rem;">C</span></div>
+                        </div>
+                        <span id="pnl_t3" class="pnl-green">₹ 0</span>
+                    </div>
+                </div>
+                <div class="text-center mt-2">
+                    <small class="text-danger fw-bold">Est. Loss: </small><span id="pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span>
+                </div>
+            </div>
+        </div>
+        <div class="custom-card mb-3" style="border-left: 4px solid #ffc107;">
+            <div class="card-head text-warning" style="background: rgba(255, 193, 7, 0.1);"><span>📡 Broadcast To</span></div>
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-around">
+                    <input type="hidden" name="pub_main" value="on">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="target_channel" id="rad_vip" value="vip" checked>
+                        <label class="form-check-label fw-bold small" for="rad_vip">VIP</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="target_channel" id="rad_free" value="free">
+                        <label class="form-check-label fw-bold small" for="rad_free">Free</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="target_channel" id="rad_z2h" value="z2h">
+                        <label class="form-check-label fw-bold small" for="rad_z2h">Z2H</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <input type="hidden" name="mode" id="mode_input" value="PAPER">
+        
+        <div class="d-flex gap-2 mb-3">
+            <div class="btn btn-outline-warning w-100 fw-bold active" onclick="setMode(this, 'PAPER')">PAPER</div>
+            
+            <div class="btn btn-outline-secondary w-100 fw-bold" onclick="setMode(this, 'SHADOW')">
+                <i class="fas fa-ghost"></i> SHADOW
+            </div>
+            
+            <div class="btn btn-outline-danger w-100 fw-bold" onclick="setMode(this, 'LIVE')">LIVE</div>
+        </div>
+        
+        <div class="sticky-footer">
+            <button type="submit" form="tradeForm" class="btn btn-dark w-100 py-2 fw-bold rounded-pill shadow-lg" style="max-width: 600px;">🚀 EXECUTE</button>
+        </div>
+    </form>
+</div>

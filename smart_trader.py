@@ -2,6 +2,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import re
+from managers.truedata_manager import feed as truedata_feed
 
 # Global IST Timezone
 IST = pytz.timezone('Asia/Kolkata')

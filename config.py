@@ -11,11 +11,6 @@ TOTP_SECRET = os.getenv("TOTP_SECRET")
 ZERODHA_USER_ID = os.getenv("ZERODHA_USER_ID")
 ZERODHA_PASSWORD = os.getenv("ZERODHA_PASSWORD")
 
-# TrueData Credentials (Get these from your TrueData email)
-TRUEDATA_USER = os.getenv("TRUEDATA_USER")
-TRUEDATA_PASS = os.getenv("TRUEDATA_PASS")
-TRUEDATA_PORT = int(os.getenv("TRUEDATA_PORT", 8084)) # 8084 is SSL (Live)
-
 # Secure Admin Page Password
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 if not ADMIN_PASSWORD:

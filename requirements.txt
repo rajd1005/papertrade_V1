@@ -9,4 +9,3 @@ pyotp==2.9.0
 selenium==4.40.0
 webdriver-manager==4.0.2
 requests==2.32.5
-truedata_ws>=0.9.1

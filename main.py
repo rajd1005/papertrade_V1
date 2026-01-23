@@ -7,7 +7,6 @@ import requests
 from flask import Flask, render_template, request, redirect, flash, jsonify, url_for
 from kiteconnect import KiteConnect
 import config
-from managers.truedata_manager import feed as truedata_feed
 
 # --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
@@ -99,7 +98,7 @@ def run_auto_login_process():
 
 def background_monitor():
     global bot_active, login_state
-    truedata_feed.connect()
+    
     # [FIXED] Wrapped Startup Notification in App Context
     with app.app_context():
         try:

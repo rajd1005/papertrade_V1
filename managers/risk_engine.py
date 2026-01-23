@@ -7,7 +7,6 @@ from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_hist
 from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
-from managers.truedata_manager import feed as truedata_feed
 
 # --- NEW: End of Day Report Helper (Automated) ---
 def send_eod_report(mode):
@@ -520,13 +519,11 @@ def update_risk_engine(kite):
         if not all_instruments: 
             return
 
-        # Fetch Live Prices (via TrueData Bridge)
-        # This checks local RAM, so it takes 0.0001 seconds
-        live_prices = truedata_feed.get_bulk_ltp(all_instruments)
-
-        # Validation: If cache is empty (startup), skip this loop to avoid bad logic
-        if not live_prices:
-           return
+        # Fetch Live Prices
+        try: 
+            live_prices = kite.quote(all_instruments)
+        except: 
+            return
 
         # --- 1. Process ACTIVE TRADES ---
         active_list = []

@@ -2,7 +2,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import re
-from managers.truedata_manager import feed as truedata_feed
 
 # Global IST Timezone
 IST = pytz.timezone('Asia/Kolkata')
@@ -113,20 +112,15 @@ def get_ltp(kite, symbol):
         return 0
 
 def get_indices_ltp(kite):
-    # Define the symbols (TrueData format usually matches these)
-    # Note: TrueData Nifty symbol is usually "NIFTY 50" and "NIFTY BANK"
-    # We request them in Kite format, the manager handles the mapping.
-
-    symbols = ["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"]
-
-    # Get from local cache (FAST)
-    quotes = truedata_feed.get_bulk_ltp(symbols)
-
-    return {
-        "NIFTY": quotes.get("NSE:NIFTY 50", {}).get('last_price', 0),
-        "BANKNIFTY": quotes.get("NSE:NIFTY BANK", {}).get('last_price', 0),
-        "SENSEX": quotes.get("BSE:SENSEX", {}).get('last_price', 0)
-    }
+    try:
+        q = kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
+        return {
+            "NIFTY": q.get("NSE:NIFTY 50", {}).get('last_price', 0),
+            "BANKNIFTY": q.get("NSE:NIFTY BANK", {}).get('last_price', 0),
+            "SENSEX": q.get("BSE:SENSEX", {}).get('last_price', 0)
+        }
+    except:
+        return {"NIFTY":0, "BANKNIFTY":0, "SENSEX":0}
 
 def get_zerodha_symbol(common_name):
     if not common_name: return ""

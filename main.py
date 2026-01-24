@@ -353,8 +353,7 @@ def api_panic_exit():
     if not bot_active:
         return jsonify({"status": "error", "message": "Bot not connected"})
     if broker_ops.panic_exit_all(kite):
-        flash("🚨 PANIC MODE EXECUTED. ALL TRADES CLOSED.")
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "message": "🚨 PANIC MODE EXECUTED. ALL TRADES CLOSED."})
     return jsonify({"status": "error", "message": "Failed to execute panic mode"})
 
 # --- ROUTES FOR TELEGRAM REPORTS ---
@@ -582,6 +581,22 @@ def api_sync():
 
     return jsonify(response)
 
+# --- UPDATED: POST method for Trade Closure (AJAX Compatible) ---
+@app.route('/close_trade/<trade_id>', methods=['POST'])
+def close_trade(trade_id):
+    if trade_manager.close_trade_manual(kite, trade_id):
+        return jsonify({"status": "success", "message": "✅ Trade Closed/Cancelled"})
+    else:
+        return jsonify({"status": "error", "message": "❌ Failed to Close Trade"})
+
+@app.route('/promote/<trade_id>')
+def promote(trade_id):
+    if trade_manager.promote_to_live(kite, trade_id):
+        flash("✅ Promoted!")
+    else:
+        flash("❌ Error")
+    return redirect('/')
+
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active: 
@@ -780,22 +795,6 @@ def place_trade():
     except Exception as e:
         print(f"[DEBUG MAIN] Exception: {e}")
         return jsonify({"status": "error", "message": str(e)})
-
-@app.route('/promote/<trade_id>')
-def promote(trade_id):
-    if trade_manager.promote_to_live(kite, trade_id):
-        flash("✅ Promoted!")
-    else:
-        flash("❌ Error")
-    return redirect('/')
-
-@app.route('/close_trade/<trade_id>')
-def close_trade(trade_id):
-    if trade_manager.close_trade_manual(kite, trade_id):
-        flash("✅ Closed")
-    else:
-        flash("❌ Error")
-    return redirect('/')
 
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)

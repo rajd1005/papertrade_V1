@@ -7,6 +7,7 @@ from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_hist
 from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
+from managers import zerodha_ticker
 
 # --- NEW: End of Day Report Helper (Automated) ---
 def send_eod_report(mode):
@@ -496,6 +497,7 @@ def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
     Updates prices, checks SL/Target hits, and triggers exits.
+    Now supports Real-Time WebSocket Updates.
     """
     # Check Global Conditions first
     current_settings = settings.load_settings()
@@ -519,13 +521,53 @@ def update_risk_engine(kite):
         if not all_instruments: 
             return
 
-        # Fetch Live Prices
-        try: 
-            live_prices = kite.quote(all_instruments)
-        except: 
-            return
+        # --- 1. SUBSCRIBE TO TICKER (REAL-TIME) ---
+        if zerodha_ticker.ticker:
+            tokens_to_sub = []
+            for inst in all_instruments:
+                parts = inst.split(":")
+                if len(parts) == 2:
+                    exch, sym = parts
+                    tok = smart_trader.get_instrument_token(sym, exch)
+                    if tok:
+                        tokens_to_sub.append(tok)
+            
+            # Subscribe only new tokens (Ticker Manager handles deduping)
+            if tokens_to_sub:
+                zerodha_ticker.ticker.subscribe(tokens_to_sub)
 
-        # --- 1. Process ACTIVE TRADES ---
+        # --- 2. FETCH PRICES (TICKER FIRST -> API FALLBACK) ---
+        live_prices = {}
+        missing_instruments = []
+
+        # Try Ticker Cache
+        if zerodha_ticker.ticker:
+            for inst in all_instruments:
+                parts = inst.split(":")
+                if len(parts) == 2:
+                    exch, sym = parts
+                    tok = smart_trader.get_instrument_token(sym, exch)
+                    if tok:
+                        # Fetch from memory (Instant)
+                        ltp = zerodha_ticker.ticker.get_ltp(tok)
+                        if ltp:
+                            live_prices[inst] = {'last_price': ltp}
+        
+        # Identify Missing
+        for inst in all_instruments:
+            if inst not in live_prices:
+                missing_instruments.append(inst)
+
+        # Fallback to API for missing/stale data
+        if missing_instruments:
+            try: 
+                q = kite.quote(missing_instruments)
+                live_prices.update(q)
+            except: 
+                # If we have no data at all, abort. If partial ticker data exists, proceed.
+                if not live_prices: return
+
+        # --- 3. Process ACTIVE TRADES ---
         active_list = []
         updated = False
         
@@ -710,7 +752,7 @@ def update_risk_engine(kite):
         if updated: 
             save_trades(active_list)
 
-        # --- 2. Process CLOSED TRADES (Missed Opportunity Tracker) ---
+        # --- 4. Process CLOSED TRADES (Missed Opportunity Tracker) ---
         history_updated = False
         try:
             for t in todays_closed:

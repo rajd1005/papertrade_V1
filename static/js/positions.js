@@ -259,6 +259,10 @@ function renderActivePositions(trades) {
             // CREATE NEW CARD
             let editBtn = `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openEditTradeModal('${t.id}')">✏️</button>`;
             
+            // --- NEW: AJAX Button for Exit/Cancel ---
+            let exitBtn = `<button class="btn btn-sm btn-dark fw-bold py-0 px-2" style="font-size:0.75rem;" onclick="exitTrade('${t.id}')">${t.status==='PENDING'?'Cancel':'Exit'}</button>`;
+            // ----------------------------------------
+
             let html = `
             <div id="${cardId}" class="card mb-2 shadow-sm border-0">
                 <div class="card-body p-2">
@@ -315,7 +319,7 @@ function renderActivePositions(trades) {
                     <div class="d-flex justify-content-end gap-2 mt-2 pt-1 border-top border-light">
                         ${editBtn}
                         <button class="btn btn-sm btn-light border text-muted py-0 px-2" style="font-size:0.75rem;" onclick="showLogs('${t.id}', 'active')">📜 Logs</button>
-                        <a href="/close_trade/${t.id}" class="btn btn-sm btn-dark fw-bold py-0 px-2" style="font-size:0.75rem;">${t.status==='PENDING'?'Cancel':'Exit'}</a>
+                        ${exitBtn}
                     </div>
                 </div>
             </div>`;
@@ -431,4 +435,32 @@ function managePos(action) {
             }
         });
     }
+}
+
+// --- NEW: AJAX EXIT FUNCTION ---
+function exitTrade(id) {
+    if(!confirm("Are you sure you want to Cancel/Exit this trade?")) return;
+    
+    // Optimistic UI: Hide card immediately to feel "Instant"
+    $(`#trade-card-${id}`).css('opacity', '0.5');
+
+    $.ajax({
+        url: `/close_trade/${id}`,
+        type: 'POST', // Using POST for Action
+        success: function(r) {
+            if(r.status === 'success') {
+                if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'success');
+                // Data update will naturally remove the card
+                updateData(); 
+            } else {
+                $(`#trade-card-${id}`).css('opacity', '1'); // Revert if failed
+                if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'error');
+                else alert(r.message);
+            }
+        },
+        error: function(err) {
+            $(`#trade-card-${id}`).css('opacity', '1');
+            alert("Network Error during Exit");
+        }
+    });
 }

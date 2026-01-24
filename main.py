@@ -360,41 +360,22 @@ def api_panic_exit():
 
 @app.route('/api/manual_trade_report', methods=['POST'])
 def api_manual_trade_report():
-    """
-    Triggered by the 'Speaker' icon on a closed trade card.
-    Sends detailed stats of that specific trade to Telegram.
-    """
     trade_id = request.json.get('trade_id')
-    if not trade_id:
-        return jsonify({"status": "error", "message": "Trade ID missing"})
-    
-    # Calls the function in risk_engine.py
+    if not trade_id: return jsonify({"status": "error", "message": "Trade ID missing"})
     result = risk_engine.send_manual_trade_report(trade_id)
     return jsonify(result)
 
 @app.route('/api/manual_summary', methods=['POST'])
 def api_manual_summary():
-    """
-    Triggered by the 'Send Daily Summary' button in History tab.
-    Sends the aggregate P/L, Wins/Loss report to Telegram.
-    """
     mode = request.json.get('mode', 'PAPER')
-    # Calls the function in risk_engine.py
     result = risk_engine.send_manual_summary(mode)
     return jsonify(result)
 
 @app.route('/api/manual_trade_status', methods=['POST'])
 def api_manual_trade_status():
-    """
-    Triggered by the 'Final Trade Status' button.
-    Sends the detailed status list of all trades to Telegram.
-    """
     mode = request.json.get('mode', 'PAPER')
-    # Calls the function in risk_engine.py
     result = risk_engine.send_manual_trade_status(mode)
     return jsonify(result)
-
-# -------------------------------------------------------------
 
 # --- NEW TELEGRAM TEST ROUTE ---
 @app.route('/api/test_telegram', methods=['POST'])
@@ -404,7 +385,6 @@ def test_telegram():
     if not token or not chat:
         return jsonify({"status": "error", "message": "Missing credentials"})
     
-    # Direct test via Requests (bypassing stored settings to test new input)
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat,
@@ -427,12 +407,9 @@ def api_import_trade():
         final_sym = smart_trader.get_exact_symbol(data['symbol'], data['expiry'], data['strike'], data['type'])
         if not final_sym: return jsonify({"status": "error", "message": "Invalid Symbol/Strike"})
         
-        # --- NEW: Extract Channel Selection from Request ---
         selected_channel = data.get('target_channel', 'main')
-        
         target_channels = [selected_channel] 
         
-        # Call Replay Engine with channels
         result = replay_engine.import_past_trade(
             kite, final_sym, data['entry_time'], 
             int(data['qty']), float(data['price']), 
@@ -442,77 +419,54 @@ def api_import_trade():
             target_channels=target_channels
         )
         
-        # --- SEQUENTIAL TELEGRAM SENDER (UPDATED) ---
         queue = result.get('notification_queue', [])
         trade_ref = result.get('trade_ref', {})
         
         if queue and trade_ref:
             def send_seq_notifications():
-                # Wrap thread in app_context to access DB
                 with app.app_context():
-                    # 1. Send Initial "NEW_TRADE" message -> Returns Dict of IDs
                     msg_ids = telegram_bot.notify_trade_event(trade_ref, "NEW_TRADE")
                     
                     if msg_ids:
                         from managers.persistence import load_trades, save_trades, save_to_history_db
-                        
                         trade_id = trade_ref['id']
                         updated_ref = False
                         
-                        # Handle Structure: If dict, save dict. If int (legacy), wrap it.
                         if isinstance(msg_ids, dict):
                             ids_dict = msg_ids
-                            # If we sent to 'free', main_id might be None or the id for free channel
-                            # We grab the ID corresponding to the selected channel as the "primary" reference
                             main_id = msg_ids.get(selected_channel) or msg_ids.get('main')
                         else:
                             ids_dict = {'main': msg_ids}
                             main_id = msg_ids
                         
-                        # Try updating Active Trades
                         trades = load_trades()
                         for t in trades:
-                            # Robust comparison: Convert both to strings
                             if str(t['id']) == str(trade_id):
                                 t['telegram_msg_ids'] = ids_dict
-                                t['telegram_msg_id'] = main_id # Legacy fallback
+                                t['telegram_msg_id'] = main_id 
                                 save_trades(trades)
                                 updated_ref = True
                                 break
                         
-                        # If not active (e.g., trade closed immediately), update History
                         if not updated_ref:
                             trade_ref['telegram_msg_ids'] = ids_dict
                             trade_ref['telegram_msg_id'] = main_id
                             save_to_history_db(trade_ref)
                             
-                        # Update local ref so subsequent events know where to reply
                         trade_ref['telegram_msg_ids'] = ids_dict
                         trade_ref['telegram_msg_id'] = main_id
                     
-                    # 2. Process the rest of the queue
                     for item in queue:
                         evt = item['event']
-                        if evt == 'NEW_TRADE': continue # Already sent
-                        
-                        # Small delay to ensure sequence order in Telegram
+                        if evt == 'NEW_TRADE': continue 
                         time.sleep(1.0)
-                        
                         dat = item.get('data')
                         t_obj = item.get('trade', trade_ref).copy() 
-                        
-                        # --- CRITICAL FIX: INJECT ID IF MISSING ---
-                        # The replay engine often creates snapshot objects without IDs.
-                        if 'id' not in t_obj:
-                            t_obj['id'] = trade_ref['id']
-                        
-                        # Inject IDs so manager knows where to reply for all channels
+                        if 'id' not in t_obj: t_obj['id'] = trade_ref['id']
                         t_obj['telegram_msg_ids'] = trade_ref.get('telegram_msg_ids')
                         t_obj['telegram_msg_id'] = trade_ref.get('telegram_msg_id')
-                        
                         telegram_bot.notify_trade_event(t_obj, evt, dat)
 
-            # Start thread
             t = threading.Thread(target=send_seq_notifications)
             t.start()
         
@@ -526,14 +480,11 @@ def api_simulate_scenario():
     data = request.json
     trade_id = data.get('trade_id')
     config = data.get('config')
-    
     result = replay_engine.simulate_trade_scenario(kite, trade_id, config)
     return jsonify(result)
 
-# --- Aggregated Sync Route for High Performance ---
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
-    # 1. Base Data (Status & Indices)
     response = {
         "status": {
             "active": bot_active, 
@@ -545,43 +496,32 @@ def api_sync():
         "closed_trades": [],
         "specific_ltp": 0
     }
-
-    # 2. Fetch Indices (Only if active)
     if bot_active:
-        try:
-            response["indices"] = smart_trader.get_indices_ltp(kite)
+        try: response["indices"] = smart_trader.get_indices_ltp(kite)
         except: pass
 
-    # 3. Active Positions
     trades = persistence.load_trades()
     for t in trades:
         t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
     response["positions"] = trades
 
-    # 4. Closed Trades (Only if requested to save bandwidth)
     if request.json.get('include_closed'):
         history = persistence.load_history()
         for t in history:
             t['symbol'] = smart_trader.get_display_name(t['symbol'])
         response["closed_trades"] = history
 
-    # 5. Specific LTP (For Trade Panel)
     req_ltp = request.json.get('ltp_req')
     if bot_active and req_ltp and req_ltp.get('symbol'):
         try:
             response["specific_ltp"] = smart_trader.get_specific_ltp(
-                kite, 
-                req_ltp['symbol'], 
-                req_ltp['expiry'], 
-                req_ltp['strike'], 
-                req_ltp['type']
+                kite, req_ltp['symbol'], req_ltp['expiry'], req_ltp['strike'], req_ltp['type']
             )
         except: pass
 
     return jsonify(response)
 
-# --- UPDATED: POST method for Trade Closure (AJAX Compatible) ---
 @app.route('/close_trade/<trade_id>', methods=['POST'])
 def close_trade(trade_id):
     if trade_manager.close_trade_manual(kite, trade_id):
@@ -589,13 +529,12 @@ def close_trade(trade_id):
     else:
         return jsonify({"status": "error", "message": "❌ Failed to Close Trade"})
 
-@app.route('/promote/<trade_id>')
+@app.route('/promote/<trade_id>', methods=['POST'])
 def promote(trade_id):
     if trade_manager.promote_to_live(kite, trade_id):
-        flash("✅ Promoted!")
+        return jsonify({"status": "success", "message": "✅ Promoted to LIVE!"})
     else:
-        flash("❌ Error")
-    return redirect('/')
+        return jsonify({"status": "error", "message": "❌ Promotion Failed"})
 
 @app.route('/trade', methods=['POST'])
 def place_trade():
@@ -603,11 +542,8 @@ def place_trade():
         return jsonify({"status": "error", "message": "Bot not connected"})
     
     try:
-        # --- DEBUG LOG: INCOMING REQUEST ---
         raw_mode = request.form['mode']
         print(f"\n[DEBUG MAIN] Received Trade Request. RAW Mode: '{raw_mode}'")
-        
-        # --- FIX: Clean Mode Input ---
         mode_input = raw_mode.strip().upper()
         
         sym = request.form['index']
@@ -625,32 +561,23 @@ def place_trade():
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
 
-        # --- TELEGRAM BROADCAST CHANNELS ---
-        target_channels = ['main'] # Main is mandatory
-        
+        target_channels = ['main']
         selected_channel = request.form.get('target_channel')
         if selected_channel in ['vip', 'free', 'z2h']:
             target_channels.append(selected_channel)
         
-        # --- PREPARE TRADE FUNCTION ARGS ---
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym:
             return jsonify({"status": "error", "message": "Symbol Generation Failed"})
 
-        # --- EXECUTION LOGIC (SHADOW MODE IMPLEMENTATION) ---
-        
-        # Load settings to get multipliers
         app_settings = settings.load_settings()
         
-        # Helper to execute trade with optional overrides
         def execute(ex_mode, ex_qty, ex_channels, overrides=None):
-            # Default to form values
             use_sl_points = sl_points
             use_target_controls = target_controls
-            use_custom_targets = custom_targets # Default to form prices
+            use_custom_targets = custom_targets
             use_ratios = None
             
-            # Apply Overrides if provided (from Global Settings)
             if overrides:
                 use_trail = float(overrides.get('trailing_sl', trailing_sl))
                 use_sl_entry = int(overrides.get('sl_to_entry', sl_to_entry))
@@ -684,7 +611,6 @@ def place_trade():
             if i == 3 and lots == 0: lots = 1000 
             target_controls.append({'enabled': enabled, 'lots': lots, 'trail_to_entry': trail_cost})
 
-        # --- PREPARE OVERRIDES (Check for Symbol Specific Settings) ---
         target_mode_conf = "LIVE" if mode_input == "SHADOW" else mode_input
         mode_conf = app_settings['modes'].get(target_mode_conf, {})
         
@@ -707,15 +633,10 @@ def place_trade():
 
         if mode_input == "SHADOW":
             print("[DEBUG MAIN] Entering SHADOW Logic Block...")
-            
-            # 1. Check Live Feasibility
             can_live, reason = common.can_place_order("LIVE")
             if not can_live:
                 return jsonify({"status": "error", "message": f"Shadow Blocked: LIVE Mode is Disabled ({reason})"})
 
-            # ==========================================
-            # LEG 1: EXECUTE LIVE
-            # ==========================================
             try:
                 val = request.form.get('live_qty')
                 live_qty = int(val) if val else input_qty
@@ -763,12 +684,6 @@ def place_trade():
             if res_live['status'] != 'success':
                 return jsonify({"status": "error", "message": f"Shadow Failed: LIVE Error ({res_live['message']})"})
             
-            # REMOVED SLEEP FOR INSTANT EXECUTION
-            # time.sleep(0.1) 
-            
-            # ==========================================
-            # LEG 2: EXECUTE PAPER
-            # ==========================================
             print("[DEBUG MAIN] calling execute('PAPER')...")
             res_paper = execute("PAPER", input_qty, target_channels, overrides=None)
             
@@ -778,7 +693,6 @@ def place_trade():
                 return jsonify({"status": "warning", "message": f"Shadow Partial: ✅ LIVE | ❌ PAPER ({res_paper['message']})"})
 
         else:
-            # Standard Execution
             print(f"[DEBUG MAIN] Entering STANDARD Logic (Mode: {mode_input})...")
             can_trade, reason = common.can_place_order(mode_input)
             if not can_trade:

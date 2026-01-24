@@ -464,3 +464,25 @@ function exitTrade(id) {
         }
     });
 }
+
+// --- NEW: AJAX PROMOTE FUNCTION (If needed) ---
+function promoteTrade(id) {
+    if(!confirm("Promote this trade to LIVE?")) return;
+    
+    $.ajax({
+        url: `/promote/${id}`,
+        type: 'POST',
+        success: function(r) {
+            if(r.status === 'success') {
+                if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'success');
+                updateData(); 
+            } else {
+                if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'error');
+                else alert(r.message);
+            }
+        },
+        error: function(err) {
+            alert("Network Error during Promotion");
+        }
+    });
+}

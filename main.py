@@ -216,6 +216,11 @@ def callback():
         try:
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
+            
+            # --- NEW: Start WebSocket Ticker (Critical Fix) ---
+            zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
+            # --------------------------------------------------
+
             bot_active = True
             smart_trader.fetch_instruments(kite)
             gc.collect()

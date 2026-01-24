@@ -1,6 +1,6 @@
 $(document).ready(function() {
 // Change 3000 to 1000 (1 second) or 500 (0.5 second)
-const REFRESH_INTERVAL = 1000;
+const REFRESH_INTERVAL = 500;
     // ---------------------
 
     renderWatchlist();

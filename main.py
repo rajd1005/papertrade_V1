@@ -7,6 +7,7 @@ import requests
 from flask import Flask, render_template, request, redirect, flash, jsonify, url_for
 from kiteconnect import KiteConnect
 import config
+from managers import zerodha_ticker
 
 # --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
@@ -54,7 +55,10 @@ def run_auto_login_process():
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
                 
-                # Fetch instruments immediately after login
+                # --- NEW: Start WebSocket Ticker ---
+                zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
+                # -----------------------------------
+
                 smart_trader.fetch_instruments(kite)
                 
                 bot_active = True

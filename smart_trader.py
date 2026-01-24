@@ -2,6 +2,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import re
+from managers import zerodha_ticker
 
 # Global IST Timezone
 IST = pytz.timezone('Asia/Kolkata')
@@ -87,19 +88,26 @@ def get_exchange_name(symbol):
 
 def get_ltp(kite, symbol):
     """
-    Fetches the Last Traded Price (LTP) with automatic exchange detection.
+    Fetches LTP from WebSocket Cache (Fast) -> Fallback to API (Slow)
     """
     try:
-        # 1. If symbol already has exchange (e.g., NSE:RELIANCE), try directly
+        # 1. Try fetching from WebSocket Cache first
+        # We need the instrument token to lookup in the ticker cache
+        exch = get_exchange_name(symbol)
+        token = get_instrument_token(symbol, exch)
+        
+        if token and zerodha_ticker.ticker:
+            cached_price = zerodha_ticker.ticker.get_ltp(token)
+            if cached_price:
+                return cached_price
+
+        # 2. Fallback: Old API Method (Slower)
         if ":" in symbol:
             quote = kite.quote(symbol)
             if quote and symbol in quote:
                 return quote[symbol]['last_price']
 
-        # 2. Determine Exchange
         exch = get_exchange_name(symbol)
-        
-        # 3. Fetch Quote with constructed format
         full_sym = f"{exch}:{symbol}"
         quote = kite.quote(full_sym)
         

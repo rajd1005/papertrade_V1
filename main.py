@@ -217,7 +217,7 @@ def callback():
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
             
-            # --- NEW: Start WebSocket Ticker (Critical Fix) ---
+            # --- NEW: Start WebSocket Ticker (Callback Fix) ---
             zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
             # --------------------------------------------------
 
@@ -429,25 +429,9 @@ def api_import_trade():
         if not final_sym: return jsonify({"status": "error", "message": "Invalid Symbol/Strike"})
         
         # --- NEW: Extract Channel Selection from Request ---
-        # Default to 'main' if missing. Logic handles single selection.
         selected_channel = data.get('target_channel', 'main')
         
-        # Construct target_channels list. 
-        # 'main' is always primary for internal logic, but we want to broadcast to the selected one.
-        # If user selected VIP, Free, or Z2H, we pass that along with 'main' logic (or replace it depending on telegram manager logic).
-        # Typically, telegram_manager broadcasts to 'main' AND any others in the list.
-        # If the requirement is "only one telegram channel", we pass that specific one.
-        
-        # However, to maintain system compatibility (where 'main' might be used for logging), 
-        # we usually pass ['main', 'vip'] etc. 
-        # BUT, if the user explicitly wants ONLY one channel (e.g. Free), we can pass just that if the backend supports it.
-        # Assuming standard logic: Main is always required for system logs? 
-        # Let's stick to the requested behavior: "only one telegram channel can be selected".
-        
         target_channels = [selected_channel] 
-        # Note: If 'main' was not selected, we might miss system logs if the bot logic relies on 'main' key.
-        # To be safe, usually we send ['main', selected_channel] if selected != main. 
-        # But if the user strictly wants ONE channel, we pass that list.
         
         # Call Replay Engine with channels
         result = replay_engine.import_past_trade(
@@ -600,7 +584,9 @@ def api_sync():
 
 @app.route('/trade', methods=['POST'])
 def place_trade():
-    if not bot_active: return redirect('/')
+    if not bot_active: 
+        return jsonify({"status": "error", "message": "Bot not connected"})
+    
     try:
         # --- DEBUG LOG: INCOMING REQUEST ---
         raw_mode = request.form['mode']
@@ -608,11 +594,9 @@ def place_trade():
         
         # --- FIX: Clean Mode Input ---
         mode_input = raw_mode.strip().upper()
-        print(f"[DEBUG MAIN] Cleaned Mode: '{mode_input}'")
         
         sym = request.form['index']
         type_ = request.form['type']
-        # mode_input defined above
         input_qty = int(request.form['qty'])
         order_type = request.form['order_type']
         
@@ -629,29 +613,14 @@ def place_trade():
         # --- TELEGRAM BROADCAST CHANNELS ---
         target_channels = ['main'] # Main is mandatory
         
-        # [UPDATED] Single Selector Logic (Radio Buttons)
         selected_channel = request.form.get('target_channel')
         if selected_channel in ['vip', 'free', 'z2h']:
             target_channels.append(selected_channel)
         
         # --- PREPARE TRADE FUNCTION ARGS ---
-        can_trade, reason = common.can_place_order("LIVE" if mode_input == "LIVE" else "PAPER")
-        # Note: Shadow mode checks both inside execution block
-        
-        custom_targets = [t1, t2, t3] if t1 > 0 else []
-        
-        target_controls = []
-        for i in range(1, 4):
-            enabled = request.form.get(f't{i}_active') == 'on'
-            lots = int(request.form.get(f't{i}_lots') or 0)
-            trail_cost = request.form.get(f't{i}_cost') == 'on'
-            if i == 3 and lots == 0: lots = 1000 
-            target_controls.append({'enabled': enabled, 'lots': lots, 'trail_to_entry': trail_cost})
-        
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym:
-            flash("❌ Symbol Generation Failed")
-            return redirect('/')
+            return jsonify({"status": "error", "message": "Symbol Generation Failed"})
 
         # --- EXECUTION LOGIC (SHADOW MODE IMPLEMENTATION) ---
         
@@ -671,24 +640,16 @@ def place_trade():
                 use_trail = float(overrides.get('trailing_sl', trailing_sl))
                 use_sl_entry = int(overrides.get('sl_to_entry', sl_to_entry))
                 use_exit_mult = int(overrides.get('exit_multiplier', exit_multiplier))
-                
-                # New: Symbol SL Override
                 if 'sl_points' in overrides: use_sl_points = float(overrides['sl_points'])
-                
-                # New: Target Controls Override
                 if 'target_controls' in overrides: use_target_controls = overrides['target_controls']
-                
-                # New: Ratios Override
                 if 'ratios' in overrides: use_ratios = overrides['ratios']
-                
-                # New: Custom Targets Override (Important to clear form prices)
                 if 'custom_targets' in overrides: use_custom_targets = overrides['custom_targets']
             else:
                 use_trail = trailing_sl
                 use_sl_entry = sl_to_entry
                 use_exit_mult = exit_multiplier
             
-            print(f"[DEBUG MAIN] Executing Helper: Mode={ex_mode}, Qty={ex_qty}, Trail={use_trail}, Mult={use_exit_mult}")
+            print(f"[DEBUG MAIN] Executing Helper: Mode={ex_mode}, Qty={ex_qty}")
             
             return trade_manager.create_trade_direct(
                 kite, ex_mode, final_sym, ex_qty, use_sl_points, use_custom_targets, 
@@ -698,9 +659,17 @@ def place_trade():
                 risk_ratios=use_ratios
             )
         
+        custom_targets = [t1, t2, t3] if t1 > 0 else []
+        
+        target_controls = []
+        for i in range(1, 4):
+            enabled = request.form.get(f't{i}_active') == 'on'
+            lots = int(request.form.get(f't{i}_lots') or 0)
+            trail_cost = request.form.get(f't{i}_cost') == 'on'
+            if i == 3 and lots == 0: lots = 1000 
+            target_controls.append({'enabled': enabled, 'lots': lots, 'trail_to_entry': trail_cost})
+
         # --- PREPARE OVERRIDES (Check for Symbol Specific Settings) ---
-        # Determine which mode config to check for symbol settings
-        # Shadow uses LIVE settings by default here for Leg 1 logic
         target_mode_conf = "LIVE" if mode_input == "SHADOW" else mode_input
         mode_conf = app_settings['modes'].get(target_mode_conf, {})
         
@@ -709,27 +678,17 @@ def place_trade():
         
         if 'symbol_sl' in mode_conf and clean_sym in mode_conf['symbol_sl']:
             s_data = mode_conf['symbol_sl'][clean_sym]
-            
-            # Handle Legacy (int/float) vs New (dict)
             if isinstance(s_data, (int, float)):
                 symbol_override['sl_points'] = float(s_data)
             elif isinstance(s_data, dict):
-                # Extract SL
                 s_sl = float(s_data.get('sl', 0))
                 if s_sl > 0:
                     symbol_override['sl_points'] = s_sl
-                    
-                    # Extract Targets (Points) -> Convert to Ratios
                     t_points = s_data.get('targets', [])
                     if len(t_points) == 3:
-                        # Ratios = TargetPoint / SLPoint
                         new_ratios = [t / s_sl for t in t_points]
                         symbol_override['ratios'] = new_ratios
-                        
-                        # Force empty custom targets so ratios are used
                         symbol_override['custom_targets'] = []
-                        
-                        print(f"[DEBUG] Symbol Override for {clean_sym}: SL={s_sl}, Ratios={new_ratios}")
 
         if mode_input == "SHADOW":
             print("[DEBUG MAIN] Entering SHADOW Logic Block...")
@@ -737,70 +696,42 @@ def place_trade():
             # 1. Check Live Feasibility
             can_live, reason = common.can_place_order("LIVE")
             if not can_live:
-                flash(f"❌ Shadow Blocked: LIVE Mode is Disabled/Blocked ({reason})")
-                return redirect('/')
+                return jsonify({"status": "error", "message": f"Shadow Blocked: LIVE Mode is Disabled ({reason})"})
 
             # ==========================================
-            # LEG 1: EXECUTE LIVE (Uses Specific "Live" Form Inputs)
+            # LEG 1: EXECUTE LIVE
             # ==========================================
-            
-            # 1. Quantity (Use form input or fallback)
             try:
                 val = request.form.get('live_qty')
                 live_qty = int(val) if val else input_qty
-            except (ValueError, TypeError):
-                live_qty = input_qty
+            except: live_qty = input_qty
 
-            # 2. Target Controls (Live)
             live_controls = []
             for i in range(1, 4):
                 enabled = request.form.get(f'live_t{i}_active') == 'on'
-                try:
-                    lots = int(request.form.get(f'live_t{i}_lots'))
-                except:
-                    lots = 0
+                try: lots = int(request.form.get(f'live_t{i}_lots'))
+                except: lots = 0
                 full = request.form.get(f'live_t{i}_full') == 'on'
                 cost = request.form.get(f'live_t{i}_cost') == 'on'
-                
                 if full: lots = 1000
-                
-                live_controls.append({
-                    'enabled': enabled,
-                    'lots': lots,
-                    'trail_to_entry': cost
-                })
+                live_controls.append({'enabled': enabled, 'lots': lots, 'trail_to_entry': cost})
 
-            # 3. Parameters (Try fetching live inputs, fallback to base inputs)
-            try:
-                live_sl_points = float(request.form.get('live_sl_points'))
-            except:
-                live_sl_points = sl_points
+            try: live_sl_points = float(request.form.get('live_sl_points'))
+            except: live_sl_points = sl_points
+            try: live_trail = float(request.form.get('live_trailing_sl'))
+            except: live_trail = trailing_sl 
+            try: live_entry_sl = int(request.form.get('live_sl_to_entry'))
+            except: live_entry_sl = sl_to_entry
+            try: live_exit_mult = int(request.form.get('live_exit_multiplier'))
+            except: live_exit_mult = exit_multiplier
 
-            try:
-                live_trail = float(request.form.get('live_trailing_sl'))
-            except:
-                live_trail = trailing_sl 
-
-            try:
-                live_entry_sl = int(request.form.get('live_sl_to_entry'))
-            except:
-                live_entry_sl = sl_to_entry
-
-            try:
-                live_exit_mult = int(request.form.get('live_exit_multiplier'))
-            except:
-                live_exit_mult = exit_multiplier
-
-            # 4. Custom Targets (Live Prices)
             try:
                 lt1 = float(request.form.get('live_t1_price', 0))
                 lt2 = float(request.form.get('live_t2_price', 0))
                 lt3 = float(request.form.get('live_t3_price', 0))
                 live_custom_targets = [lt1, lt2, lt3]
-            except:
-                live_custom_targets = custom_targets
+            except: live_custom_targets = custom_targets
 
-            # Construct Overrides
             live_overrides = {
                 'trailing_sl': live_trail,
                 'sl_to_entry': live_entry_sl,
@@ -811,60 +742,44 @@ def place_trade():
                 'ratios': None 
             }
             
-            # Execute LIVE (Silent)
-            print("[DEBUG MAIN] calling execute('LIVE') with Form Overrides...")
+            print("[DEBUG MAIN] calling execute('LIVE')...")
             res_live = execute("LIVE", live_qty, [], overrides=live_overrides)
             
             if res_live['status'] != 'success':
-                flash(f"❌ Shadow Failed: LIVE Execution Error ({res_live['message']})")
-                return redirect('/')
+                return jsonify({"status": "error", "message": f"Shadow Failed: LIVE Error ({res_live['message']})"})
             
-            # 3. Wait for DB Safety (1s to ensure ID separation)
-            print("[DEBUG MAIN] LIVE Success. Waiting 1s...")
-            time.sleep(1)
+            # REMOVED SLEEP FOR INSTANT EXECUTION
+            # time.sleep(0.1) 
             
             # ==========================================
-            # LEG 2: EXECUTE PAPER (Uses Standard Paper Form Inputs)
+            # LEG 2: EXECUTE PAPER
             # ==========================================
-            paper_qty = input_qty
-            
-            # Execute PAPER (Broadcast with Main Form Settings)
-            print("[DEBUG MAIN] calling execute('PAPER') with Main Form Inputs...")
-            res_paper = execute("PAPER", paper_qty, target_channels, overrides=None)
+            print("[DEBUG MAIN] calling execute('PAPER')...")
+            res_paper = execute("PAPER", input_qty, target_channels, overrides=None)
             
             if res_paper['status'] == 'success':
-                flash(f"👻 Shadow Executed: ✅ LIVE | ✅ PAPER")
+                return jsonify({"status": "success", "message": "👻 Shadow Executed: ✅ LIVE | ✅ PAPER"})
             else:
-                flash(f"⚠️ Shadow Partial: ✅ LIVE | ❌ PAPER Failed ({res_paper['message']})")
+                return jsonify({"status": "warning", "message": f"Shadow Partial: ✅ LIVE | ❌ PAPER ({res_paper['message']})"})
 
         else:
-            # Standard Execution (PAPER or LIVE)
-            print(f"[DEBUG MAIN] Entering STANDARD Logic Block (Mode: {mode_input})...")
-            
+            # Standard Execution
+            print(f"[DEBUG MAIN] Entering STANDARD Logic (Mode: {mode_input})...")
             can_trade, reason = common.can_place_order(mode_input)
             if not can_trade:
-                flash(f"⛔ Trade Blocked: {reason}")
-                return redirect('/')
+                return jsonify({"status": "error", "message": f"Trade Blocked: {reason}"})
             
-            # Calculate Qty based on mode multiplier
-            final_qty = input_qty
-            
-            # Use Symbol Overrides if available
-            std_overrides = None
-            if symbol_override:
-                std_overrides = symbol_override.copy()
-            
-            res = execute(mode_input, final_qty, target_channels, overrides=std_overrides)
+            std_overrides = symbol_override.copy() if symbol_override else None
+            res = execute(mode_input, input_qty, target_channels, overrides=std_overrides)
             
             if res['status'] == 'success':
-                flash(f"✅ Order Placed: {final_sym}")
+                return jsonify({"status": "success", "message": f"✅ Order Placed: {final_sym}"})
             else:
-                flash(f"❌ Error: {res['message']}")
+                return jsonify({"status": "error", "message": f"❌ Error: {res['message']}"})
             
     except Exception as e:
         print(f"[DEBUG MAIN] Exception: {e}")
-        flash(f"Error: {e}")
-    return redirect('/')
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/promote/<trade_id>')
 def promote(trade_id):

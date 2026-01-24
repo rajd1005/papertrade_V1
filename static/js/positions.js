@@ -88,7 +88,7 @@ function updateData() {
                 }
             }
 
-            // 4. Update Active Positions
+            // 4. Update Active Positions (Optimized)
             renderActivePositions(d.positions || []);
 
             // 5. Update Closed Trades (if requested)
@@ -103,13 +103,14 @@ function updateData() {
     });
 }
 
-// 2. Render Active Positions
+// 2. Render Active Positions (Optimized for Real-Time Updates)
 function renderActivePositions(trades) {
     activeTradesList = trades; 
     let sumLive = 0, sumPaper = 0;
     let capLive = 0, capPaper = 0; 
     let filterType = $('#active_filter').val();
 
+    // 1. Calculate Totals first
     trades.forEach(t => {
         let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
         let invested = t.entry_price * t.quantity; 
@@ -118,144 +119,165 @@ function renderActivePositions(trades) {
         else if(cat === 'PAPER' && !t.is_replay) { sumPaper += pnl; capPaper += invested; }
     });
     
+    // Update Header Stats
     $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
     $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
-    
     $('#cap_live').text("₹ " + (capLive/100000).toFixed(2) + " L");
     $('#cap_paper').text("₹ " + (capPaper/100000).toFixed(2) + " L");
 
+    // 2. Smart Rendering (DOM Patching)
     let filtered = trades.filter(t => filterType === 'ALL' || getTradeCategory(t) === filterType);
-    let html = '';
-    if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No Active Trades for selected filter</div>';
-    else {
-        filtered.forEach(t => {
-            let pnl = (t.current_ltp - t.entry_price) * t.quantity;
-            let invested = t.entry_price * t.quantity;
-            let color = pnl >= 0 ? 'text-success' : 'text-danger';
-            if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
+    
+    // A. Remove cards that are no longer present
+    let currentIds = new Set(filtered.map(t => `trade-card-${t.id}`));
+    $('#pos-container').children().each(function() {
+        if (!currentIds.has(this.id) && this.id !== 'no-trades-msg') {
+            $(this).remove();
+        }
+    });
+
+    // B. Handle Empty State
+    if(filtered.length === 0) {
+        if($('#pos-container').children().length === 0) {
+             $('#pos-container').html('<div class="text-center p-4 text-muted" id="no-trades-msg">No Active Trades for selected filter</div>');
+        }
+        return;
+    } else {
+        $('#no-trades-msg').remove();
+    }
+
+    // C. Update or Append Cards
+    filtered.forEach(t => {
+        let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
+        let invested = t.entry_price * t.quantity;
+        let pnlColor = pnl >= 0 ? 'text-success' : 'text-danger';
+        if (t.status === 'PENDING') { pnl = 0; pnlColor = 'text-warning'; }
+        
+        let cat = getTradeCategory(t); 
+        let badge = getMarkBadge(cat);
+        if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.65rem;">REPLAY</span>';
+
+        // Status Tag
+        let statusTag = '';
+        if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pending</span>';
+        else {
+            let hits = t.targets_hit_indices || [];
+            let maxHit = -1;
+            if(hits.length > 0) maxHit = Math.max(...hits);
             
-            let cat = getTradeCategory(t); 
-            let badge = getMarkBadge(cat);
-            if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.65rem;">REPLAY</span>';
+            if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T1 Hit</span>';
+            else if(maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T2 Hit</span>';
+            else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>';
+            else statusTag = '<span class="badge bg-primary" style="font-size:0.65rem;">Active</span>';
+        }
 
-            // --- Status Tag Logic ---
-            let statusTag = '';
-            if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pending</span>';
-            else {
-                let hits = t.targets_hit_indices || [];
-                let maxHit = -1;
-                if(hits.length > 0) maxHit = Math.max(...hits);
-                
-                if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T1 Hit</span>';
-                else if(maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T2 Hit</span>';
-                else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>';
-                else statusTag = '<span class="badge bg-primary" style="font-size:0.65rem;">Active</span>';
-            }
-
-            // --- TIME LOGIC ---
-            let addedTimeStr = t.entry_time ? t.entry_time.slice(11, 16) : '--:--';
-            let activeTimeStr = '--:--';
-            let waitDuration = '';
-
-            if (t.logs && t.logs.length > 0) {
-                let activationLog = t.logs.find(l => l.includes('Order ACTIVATED'));
-                if (activationLog) {
-                    let match = activationLog.match(/\[(.*?)\]/);
-                    if (match && match[1]) {
-                        activeTimeStr = match[1].slice(11, 16);
-                        let addedDateObj = new Date(t.entry_time);
-                        let activeDateObj = new Date(match[1]);
-                        if(addedDateObj && activeDateObj) {
-                            let diff = activeDateObj - addedDateObj;
-                            if(diff > 0) {
-                                let totalSecs = Math.floor(diff / 1000);
-                                let m = Math.floor(totalSecs / 60);
-                                let s = totalSecs % 60;
-                                waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(${m}m ${s}s)</span>`;
-                            }
+        // --- TIME LOGIC ---
+        let addedTimeStr = t.entry_time ? t.entry_time.slice(11, 16) : '--:--';
+        let activeTimeStr = '--:--';
+        let waitDuration = '';
+        if (t.logs && t.logs.length > 0) {
+            let activationLog = t.logs.find(l => l.includes('Order ACTIVATED'));
+            if (activationLog) {
+                let match = activationLog.match(/\[(.*?)\]/);
+                if (match && match[1]) {
+                    activeTimeStr = match[1].slice(11, 16);
+                    let addedDateObj = new Date(t.entry_time);
+                    let activeDateObj = new Date(match[1]);
+                    if(addedDateObj && activeDateObj) {
+                        let diff = activeDateObj - addedDateObj;
+                        if(diff > 0) {
+                            let totalSecs = Math.floor(diff / 1000);
+                            let m = Math.floor(totalSecs / 60);
+                            let s = totalSecs % 60;
+                            waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(${m}m ${s}s)</span>`;
                         }
                     }
-                } else {
-                    let firstLog = t.logs[0] || "";
-                    if (firstLog.includes("Status: OPEN")) {
-                        activeTimeStr = addedTimeStr;
-                        waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(Instant)</span>`;
-                    }
                 }
+            } else if (t.logs[0] && t.logs[0].includes("Status: OPEN")) {
+                activeTimeStr = addedTimeStr;
+                waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(Instant)</span>`;
             }
-            if(t.is_replay && t.last_update_time) {
-                activeTimeStr = t.last_update_time.slice(11, 16);
-                waitDuration = '<span class="text-info ms-1" style="font-size:0.65rem;">(Sim)</span>';
+        }
+        if(t.is_replay && t.last_update_time) {
+            activeTimeStr = t.last_update_time.slice(11, 16);
+            waitDuration = '<span class="text-info ms-1" style="font-size:0.65rem;">(Sim)</span>';
+        }
+        
+        // --- PROJECTED P&L CALCULATION ---
+        let projProfit = 0;
+        let projLoss = (t.sl - t.entry_price) * t.quantity;
+        let remQty = t.quantity;
+        let lotSz = t.lot_size || 1;
+        let tControls = t.target_controls || [{enabled:true, lots:0}, {enabled:true, lots:0}, {enabled:true, lots:1000}];
+        
+        let startIdx = (t.targets_hit_indices && t.targets_hit_indices.length > 0) ? Math.max(...t.targets_hit_indices) + 1 : 0;
+
+        for(let i=startIdx; i<3; i++) {
+            if(remQty <= 0) break;
+            let tp = t.targets[i];
+            let tc = tControls[i];
+            if(!tc) continue;
+            let q = (i === 2 || tc.lots >= 1000) ? remQty : Math.min(tc.lots * lotSz, remQty);
+            if(q > 0) {
+                projProfit += (tp - t.entry_price) * q;
+                remQty -= q;
             }
+        }
+
+        let projPColor = projProfit >= 0 ? 'text-success' : 'text-danger';
+        let projLColor = projLoss >= 0 ? 'text-success' : 'text-danger';
+
+        // --- DOM PATCHING ---
+        let cardId = `trade-card-${t.id}`;
+        
+        if ($(`#${cardId}`).length) {
+            // UPDATE EXISTING CARD
+            // We only update fields that change frequently
+            $(`#${cardId} .t-pnl-val`).text(t.status==='PENDING'?'PENDING':pnl.toFixed(2))
+                .removeClass('text-success text-danger text-warning').addClass(pnlColor);
             
-            // --- PROJECTED P&L CALCULATION ---
-            let projProfit = 0;
-            let projLoss = 0;
-            let remQty = t.quantity;
-            let lotSz = t.lot_size || 1;
+            $(`#${cardId} .t-ltp`).text(t.current_ltp.toFixed(2));
+            $(`#${cardId} .t-qty`).text(t.quantity); // In case of partial exits
+            $(`#${cardId} .t-fund`).text("₹" + (invested/1000).toFixed(1) + "k");
+            $(`#${cardId} .t-sl`).text("SL: " + t.sl.toFixed(1));
             
-            // 1. Calc Max Loss (SL Hit) -> (SL - Entry) * Remaining Qty
-            projLoss = (t.sl - t.entry_price) * remQty;
-
-            // 2. Calc Max Profit (Exiting at Targets)
-            let tControls = t.target_controls || [
-                {enabled:true, lots:0, trail_to_entry:false}, 
-                {enabled:true, lots:0, trail_to_entry:false}, 
-                {enabled:true, lots:1000, trail_to_entry:false}
-            ];
+            // Update Status Badge if it changed (optimization: check html content)
+            let curBadge = $(`#${cardId} .t-status-container`).html();
+            let newBadgeHtml = `${badge} ${statusTag}`;
+            if(curBadge !== newBadgeHtml) $(`#${cardId} .t-status-container`).html(newBadgeHtml);
             
-            // Start from the next unhit target
-            let startIdx = 0;
-            if(t.targets_hit_indices && t.targets_hit_indices.length > 0) {
-                 startIdx = Math.max(...t.targets_hit_indices) + 1;
+            // Update Projected
+            $(`#${cardId} .t-proj-p`).text("₹" + projProfit.toFixed(0)).removeClass('text-success text-danger').addClass(projPColor);
+            $(`#${cardId} .t-proj-l`).text("₹" + projLoss.toFixed(0)).removeClass('text-success text-danger').addClass(projLColor);
+            
+            // Update Times (in case of activation)
+            if(activeTimeStr !== '--:--') {
+                 $(`#${cardId} .t-active-time`).html(`<span class="text-primary">Active: <b>${activeTimeStr}</b></span> ${waitDuration}`);
             }
 
-            let pQty = remQty;
-            for(let i=startIdx; i<3; i++) {
-                if(pQty <= 0) break;
-                
-                let tp = t.targets[i];
-                let tc = tControls[i];
-                if(!tc) continue;
-
-                let q = 0;
-                // If last target OR "Full" checked OR lots >= 1000, take all remaining
-                if(i === 2 || tc.lots >= 1000) { 
-                    q = pQty; 
-                } else {
-                    q = tc.lots * lotSz;
-                    if(q > pQty) q = pQty; // Cap at available
-                }
-                
-                if(q > 0) {
-                    projProfit += (tp - t.entry_price) * q;
-                    pQty -= q;
-                }
-            }
-            // ----------------------------------------
-
-            // --- Buttons ---
+        } else {
+            // CREATE NEW CARD
             let editBtn = `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openEditTradeModal('${t.id}')">✏️</button>`;
             
-            html += `
-            <div class="card mb-2 shadow-sm border-0">
+            let html = `
+            <div id="${cardId}" class="card mb-2 shadow-sm border-0">
                 <div class="card-body p-2">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <div>
                             <span class="fw-bold text-dark h6 m-0">${t.symbol}</span>
-                            <div class="mt-1 d-flex gap-1 align-items-center flex-wrap">
+                            <div class="mt-1 d-flex gap-1 align-items-center flex-wrap t-status-container">
                                 ${badge} ${statusTag}
                             </div>
                         </div>
                         <div class="text-end">
-                            <div class="fw-bold h6 m-0 ${color}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</div>
+                            <div class="fw-bold h6 m-0 t-pnl-val ${pnlColor}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</div>
                         </div>
                     </div>
                     <hr class="my-1 text-muted opacity-25">
                     <div class="row g-0 text-center mt-2" style="font-size:0.75rem;">
                         <div class="col-3 border-end">
                             <div class="text-muted small">Qty</div>
-                            <div class="fw-bold text-dark">${t.quantity}</div>
+                            <div class="fw-bold text-dark t-qty">${t.quantity}</div>
                         </div>
                         <div class="col-3 border-end">
                             <div class="text-muted small">Entry</div>
@@ -263,30 +285,30 @@ function renderActivePositions(trades) {
                         </div>
                         <div class="col-3 border-end">
                             <div class="text-muted small">LTP</div>
-                            <div class="fw-bold text-dark">${t.current_ltp.toFixed(2)}</div>
+                            <div class="fw-bold text-dark t-ltp">${t.current_ltp.toFixed(2)}</div>
                         </div>
                         <div class="col-3">
                             <div class="text-muted small">Fund</div>
-                            <div class="fw-bold text-dark">₹${(invested/1000).toFixed(1)}k</div>
+                            <div class="fw-bold text-dark t-fund">₹${(invested/1000).toFixed(1)}k</div>
                         </div>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mt-2 px-1 bg-light rounded py-1" style="font-size:0.75rem;">
                         <span class="text-muted">Added: <b>${addedTimeStr}</b></span>
-                        <div class="d-flex align-items-center">
+                        <div class="d-flex align-items-center t-active-time">
                             <span class="text-primary">Active: <b>${activeTimeStr}</b></span>
                             ${waitDuration}
                         </div>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
-                         <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
+                         <span class="text-danger fw-bold t-sl">SL: ${t.sl.toFixed(1)}</span>
                          <span class="text-muted">T: ${t.targets[0].toFixed(0)} | ${t.targets[1].toFixed(0)} | ${t.targets[2].toFixed(0)}</span>
                     </div>
 
                     <div class="d-flex justify-content-between align-items-center mt-1 px-1 py-1 border-top border-light" style="font-size:0.75rem;">
                         <span class="text-muted" title="Based on Global/Trade Target Config"><i class="fas fa-shield-alt text-secondary"></i> Projected:</span>
                         <div>
-                             <span class="${projProfit >= 0 ? 'text-success' : 'text-danger'} fw-bold me-2" title="Max Profit if all Targets hit">₹${projProfit.toFixed(0)}</span>
-                             <span class="${projLoss >= 0 ? 'text-success' : 'text-danger'} fw-bold" title="Max Loss if SL hit">₹${projLoss.toFixed(0)}</span>
+                             <span class="t-proj-p ${projPColor} fw-bold me-2" title="Max Profit">₹${projProfit.toFixed(0)}</span>
+                             <span class="t-proj-l ${projLColor} fw-bold" title="Max Loss">₹${projLoss.toFixed(0)}</span>
                         </div>
                     </div>
 
@@ -297,9 +319,9 @@ function renderActivePositions(trades) {
                     </div>
                 </div>
             </div>`;
-        });
-    }
-    $('#pos-container').html(html);
+            $('#pos-container').append(html);
+        }
+    });
 }
 
 // --- Trade Management Functions ---

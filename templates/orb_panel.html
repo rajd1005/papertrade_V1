@@ -141,8 +141,16 @@
 </div>
 
 <script>
-    let curLotSize = 0; 
-    let globalStrategies = {}; // Stores all saved strategies
+    // Fallback Lot Sizes in case API fails
+    const LOT_DEFAULTS = {
+        "NIFTY": 50,
+        "BANKNIFTY": 15,
+        "FINNIFTY": 40,
+        "SENSEX": 10
+    };
+
+    let curLotSize = 50; // Default safety
+    let globalStrategies = {}; 
 
     document.addEventListener("DOMContentLoaded", function() {
         fetchAllSettings();
@@ -150,28 +158,30 @@
         setInterval(refreshLTP, 5000);
     });
 
-    // 1. Fetch All Settings & Status
     function fetchAllSettings() {
         fetch('/api/orb/settings')
             .then(response => response.json())
             .then(data => {
                 globalStrategies = data.strategies || {};
                 updateStatusUI(data.status);
-                loadIndexSettings(); // Load UI for currently selected index
+                loadIndexSettings(); 
             })
             .catch(err => console.error("Init Error:", err));
     }
 
-    // 2. Load UI based on Selected Index
     function loadIndexSettings() {
         const idx = document.getElementById('index_selector').value;
-        const saved = globalStrategies[idx]; // Check if we have saved config for this index
+        const saved = globalStrategies[idx]; 
 
-        // Fetch LTP & Lot Size Logic
+        // 1. Set Default Lot Size immediately (UI feels responsive)
+        curLotSize = LOT_DEFAULTS[idx] || 50;
+        document.getElementById('lot_size_hint').innerText = `Std Lot: ${curLotSize}`;
+
+        // 2. Fetch Fresh Data (Async)
         fetch(`/api/details?symbol=${idx}`)
             .then(res => res.json())
             .then(data => {
-                curLotSize = data.lot_size || 0;
+                if(data.lot_size > 0) curLotSize = data.lot_size;
                 document.getElementById('lot_size_hint').innerText = `Std Lot: ${curLotSize}`;
                 
                 if(data.ltp) {
@@ -179,33 +189,37 @@
                     ltpBadge.innerText = `LTP: ${data.ltp}`;
                     ltpBadge.className = "badge bg-success text-white";
                 }
-
-                // Populate Form: Use Saved if exists, else Default
-                if (saved) {
-                    document.getElementById('trade_mode').value = saved.trade_mode || 'PAPER';
-                    document.getElementById('order_type').value = saved.order_type || 'MARKET';
-                    document.getElementById('trade_qty').value = saved.qty || curLotSize;
-                    document.getElementById('buffer_points').value = saved.buffer_points || 1.0;
-                    document.getElementById('target1_ratio').value = saved.risk_reward[0] || 1.0;
-                    document.getElementById('target2_ratio').value = saved.risk_reward[1] || 3.0;
-                } else {
-                    // Defaults
-                    document.getElementById('trade_mode').value = 'PAPER';
-                    document.getElementById('order_type').value = 'MARKET';
-                    document.getElementById('trade_qty').value = curLotSize; // Default to 1 lot
-                    document.getElementById('buffer_points').value = 1.0;
-                    document.getElementById('target1_ratio').value = 1.0;
-                    document.getElementById('target2_ratio').value = 3.0;
-                }
             });
+
+        // 3. Populate Form with Saved Data or Defaults
+        if (saved) {
+            document.getElementById('trade_mode').value = saved.trade_mode || 'PAPER';
+            document.getElementById('order_type').value = saved.order_type || 'MARKET';
+            document.getElementById('trade_qty').value = saved.qty || curLotSize;
+            document.getElementById('buffer_points').value = saved.buffer_points || 1.0;
+            document.getElementById('target1_ratio').value = saved.risk_reward[0] || 1.0;
+            document.getElementById('target2_ratio').value = saved.risk_reward[1] || 3.0;
+        } else {
+            document.getElementById('trade_mode').value = 'PAPER';
+            document.getElementById('order_type').value = 'MARKET';
+            document.getElementById('trade_qty').value = curLotSize; 
+            document.getElementById('buffer_points').value = 1.0;
+            document.getElementById('target1_ratio').value = 1.0;
+            document.getElementById('target2_ratio').value = 3.0;
+        }
     }
 
-    // 3. Save Single Index Configuration
     function saveSettings() {
         const idx = document.getElementById('index_selector').value;
+        const qty = parseInt(document.getElementById('trade_qty').value) || 0;
+
+        if (qty <= 0) {
+            alert("⚠️ Quantity cannot be 0.");
+            return;
+        }
         
         const config = {
-            qty: parseInt(document.getElementById('trade_qty').value) || 0,
+            qty: qty,
             trade_mode: document.getElementById('trade_mode').value,
             order_type: document.getElementById('order_type').value,
             buffer_points: parseFloat(document.getElementById('buffer_points').value),
@@ -223,11 +237,10 @@
         .then(res => res.json())
         .then(data => {
             alert("✅ " + data.message);
-            fetchAllSettings(); // Refresh local data
+            fetchAllSettings(); 
         });
     }
 
-    // 4. View Saved Table
     function loadSavedTable() {
         const tbody = document.getElementById('saved_config_body');
         tbody.innerHTML = "";
@@ -271,12 +284,15 @@
         .then(res => res.json())
         .then(data => {
             alert(data.message);
-            fetchAllSettings(); // Refresh UI
-            loadSavedTable(); // Refresh Modal
+            fetchAllSettings();
+            loadIndexSettings(); // Reset form if we just deleted active index
+            // Close modal to show update
+            const modalEl = document.getElementById('viewConfigModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if(modal) modal.hide();
         });
     }
 
-    // Utils
     function adjQty(dir) {
         if (curLotSize === 0) return;
         let qtyField = document.getElementById('trade_qty');

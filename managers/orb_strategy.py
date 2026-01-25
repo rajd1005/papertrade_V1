@@ -24,7 +24,6 @@ DEFAULT_CONFIG = {
     "risk_reward": [1.0, 3.0]
 }
 
-# Added SENSEX Mapping
 INDEX_MAP = {
     "NIFTY": {"spot": "NIFTY 50", "fut_fmt": "NIFTY", "strike_diff": 50},
     "BANKNIFTY": {"spot": "NIFTY BANK", "fut_fmt": "BANKNIFTY", "strike_diff": 100},
@@ -60,18 +59,19 @@ class OrbSniperBot:
             # 1. Update Quantity Map (Merge, don't overwrite)
             if 'qty_map' in new_config and 'qty_map' in self.config:
                 self.config['qty_map'].update(new_config['qty_map'])
-                # Remove from new_config so it doesn't get overwritten by basic update
                 del new_config['qty_map']
             
             # 2. Update Rest of Config
             self.config.update(new_config)
             
-            # 3. Save to Disk
+            # 3. Save
             self._save_json(CONFIG_FILE, self.config)
-            self.log(f"Config Updated. Status: {self.config['status']} | Mode: {self.config.get('trade_mode')}")
+            self.log(f"Config Updated. Mode: {self.config.get('trade_mode')} | Index: {self.config.get('selected_index')}")
 
     def get_active_symbols(self):
         selection = self.config.get("selected_index", "NIFTY")
+        if selection == "ALL":
+            return list(INDEX_MAP.keys()) # Returns ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'SENSEX']
         return [selection]
 
     def _init_symbol_state(self, key):
@@ -91,6 +91,7 @@ class OrbSniperBot:
             now = datetime.now(IST)
             if now.time() < dtime(9, 15): return
 
+            # Iterates through ALL active symbols (1 or Many)
             for key in self.get_active_symbols():
                 self._process_symbol(kite, key, now)
 
@@ -104,10 +105,12 @@ class OrbSniperBot:
         # PHASE 1: MARK RANGE (09:15-09:20)
         if state["status"] == "WAITING_RANGE":
             if now.time() >= dtime(9, 20, 5):
-                self.log(f"{key}: Fetching First Candle...")
+                # Ensure we haven't already logged this today to reduce spam in ALL mode
+                if f"{key}_fetched" not in self.last_candle_check: 
+                    self.log(f"{key}: Fetching First Candle...")
+                    self.last_candle_check[f"{key}_fetched"] = True
+
                 token = smart_trader.get_instrument_token(spot_sym, "NSE" if "NIFTY" in key else "BSE")
-                
-                # Precise 5-min candle fetch
                 from_t = now.replace(hour=9, minute=15, second=0, microsecond=0)
                 to_t = now.replace(hour=9, minute=20, second=0, microsecond=0)
                 
@@ -119,7 +122,7 @@ class OrbSniperBot:
                     state["range_high"] = r_high
                     state["range_low"] = r_low
                     state["status"] = "SCANNING"
-                    self.log(f"{key}: Range Marked {r_high}-{r_low}")
+                    self.log(f"{key}: Range {r_high}-{r_low}")
                     self._save_json(STATE_FILE, self.state)
 
         # PHASE 2: SCAN
@@ -165,7 +168,7 @@ class OrbSniperBot:
 
     def _execute_trade(self, kite, key, side, spot_ltp):
         try:
-            qty = self.config['qty_map'].get(key, 50)
+            qty = self.config['qty_map'].get(key, 50) # Gets specific qty for this index
             order_type = self.config.get("order_type", "MARKET")
             trade_mode = self.config.get("trade_mode", "PAPER")
             meta = INDEX_MAP[key]
@@ -182,7 +185,7 @@ class OrbSniperBot:
                 mode=trade_mode,
                 specific_symbol=symbol,
                 quantity=qty,
-                sl_points=30, # Default SL, user can edit in trade tab
+                sl_points=30,
                 custom_targets=[], 
                 order_type=order_type,
                 target_controls=[],

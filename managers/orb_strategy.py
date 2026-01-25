@@ -16,12 +16,7 @@ STATE_FILE = "orb_state.json"
 
 DEFAULT_CONFIG = {
     "status": "DISABLED",
-    "selected_index": "NIFTY",
-    "trade_mode": "PAPER",
-    "order_type": "MARKET",
-    "qty_map": {"NIFTY": 50, "BANKNIFTY": 15, "FINNIFTY": 40, "SENSEX": 10},
-    "buffer_points": 1.0,
-    "risk_reward": [1.0, 3.0]
+    "strategies": {} # Stores per-index config: {"NIFTY": {qty, mode...}, "BANKNIFTY": {...}}
 }
 
 INDEX_MAP = {
@@ -54,37 +49,34 @@ class OrbSniperBot:
         if len(self.logs) > 50: self.logs.pop()
         print(f"[ORB] {msg}")
 
-    def update_config(self, new_config):
+    def save_index_config(self, index, settings):
+        """Saves configuration for a specific index."""
         with LOCK:
-            # Update Qty Map safely
-            if 'qty_map' in new_config and 'qty_map' in self.config:
-                self.config['qty_map'].update(new_config['qty_map'])
-                del new_config['qty_map']
+            if "strategies" not in self.config:
+                self.config["strategies"] = {}
             
-            self.config.update(new_config)
+            # Save/Overwrite settings for this index
+            self.config["strategies"][index] = settings
             self._save_json(CONFIG_FILE, self.config)
-            self.log(f"Config Updated. Status: {self.config['status']}")
+            self.log(f"💾 Saved Config for {index} ({settings['trade_mode']})")
 
     def delete_index_config(self, index):
-        """Removes an index from the active trading list."""
+        """Deletes configuration for a specific index."""
         with LOCK:
             if index == "RESET_ALL":
                 self.config = DEFAULT_CONFIG.copy()
-                self.log("⚠ Configuration Reset to Defaults.")
-            elif index in self.config['qty_map']:
-                del self.config['qty_map'][index]
-                self.log(f"🗑 Deleted Configuration for {index}")
+                self.log("⚠ All Configurations Reset.")
+            elif index in self.config.get("strategies", {}):
+                del self.config["strategies"][index]
+                self.log(f"🗑 Deleted Config for {index}")
             
             self._save_json(CONFIG_FILE, self.config)
 
-    def get_active_symbols(self):
-        """
-        STRICT MODE: Returns ALL indices that have a Quantity > 0.
-        Ignores 'selected_index' dropdown state.
-        """
-        saved_map = self.config.get('qty_map', {})
-        # Return keys where quantity is greater than 0
-        return [k for k in INDEX_MAP.keys() if saved_map.get(k, 0) > 0]
+    def toggle_status(self, status):
+        with LOCK:
+            self.config["status"] = status
+            self._save_json(CONFIG_FILE, self.config)
+            self.log(f"System Status: {status}")
 
     def _init_symbol_state(self, key):
         today = datetime.now(IST).strftime("%Y-%m-%d")
@@ -103,13 +95,13 @@ class OrbSniperBot:
             now = datetime.now(IST)
             if now.time() < dtime(9, 15): return
 
-            active_list = self.get_active_symbols()
-            if not active_list: return
+            # Loop through SAVED strategies only
+            strategies = self.config.get("strategies", {})
+            for key, settings in strategies.items():
+                if settings.get("qty", 0) > 0:
+                    self._process_symbol(kite, key, settings, now)
 
-            for key in active_list:
-                self._process_symbol(kite, key, now)
-
-    def _process_symbol(self, kite, key, now):
+    def _process_symbol(self, kite, key, settings, now):
         self._init_symbol_state(key)
         state = self.state[key]
         meta = INDEX_MAP.get(key)
@@ -119,7 +111,6 @@ class OrbSniperBot:
         # PHASE 1: MARK RANGE (09:15-09:20)
         if state["status"] == "WAITING_RANGE":
             if now.time() >= dtime(9, 20, 5):
-                # Debounce log
                 if f"{key}_fetched" not in self.last_candle_check: 
                     self.log(f"{key}: Fetching First Candle...")
                     self.last_candle_check[f"{key}_fetched"] = True
@@ -131,12 +122,10 @@ class OrbSniperBot:
                 data = kite.historical_data(token, from_t, to_t, "5minute")
                 if data:
                     c = data[0]
-                    r_high = c['high']
-                    r_low = c['low']
-                    state["range_high"] = r_high
-                    state["range_low"] = r_low
+                    state["range_high"] = c['high']
+                    state["range_low"] = c['low']
                     state["status"] = "SCANNING"
-                    self.log(f"{key}: Range {r_high}-{r_low}")
+                    self.log(f"{key}: Range {c['high']}-{c['low']}")
                     self._save_json(STATE_FILE, self.state)
 
         # PHASE 2: SCAN
@@ -158,7 +147,9 @@ class OrbSniperBot:
                     
                     if side:
                         base = last['high'] if side == "CALL" else last['low']
-                        trigger = base + self.config['buffer_points'] if side == "CALL" else base - self.config['buffer_points']
+                        # Use Buffer from INDEX SPECIFIC settings
+                        buffer = float(settings.get('buffer_points', 1.0))
+                        trigger = base + buffer if side == "CALL" else base - buffer
                         
                         state["signal_side"] = side
                         state["trigger_level"] = trigger
@@ -176,19 +167,19 @@ class OrbSniperBot:
             
             if triggered:
                 self.log(f"{key}: 🚀 TRIGGER HIT! Executing...")
-                self._execute_trade(kite, key, state["signal_side"], ltp)
+                self._execute_trade(kite, key, state["signal_side"], ltp, settings)
                 state["status"] = "DONE"
                 self._save_json(STATE_FILE, self.state)
 
-    def _execute_trade(self, kite, key, side, spot_ltp):
+    def _execute_trade(self, kite, key, side, spot_ltp, settings):
         try:
-            qty = self.config['qty_map'].get(key, 0)
-            if qty <= 0: return # Config deleted/zeroed out
+            # Use Settings Passed explicitly for this index
+            qty = int(settings.get('qty', 0))
+            mode = settings.get('trade_mode', 'PAPER')
+            order_type = settings.get('order_type', 'MARKET')
+            rr = settings.get('risk_reward', [1.0, 3.0])
             
-            order_type = self.config.get("order_type", "MARKET")
-            trade_mode = self.config.get("trade_mode", "PAPER")
             meta = INDEX_MAP[key]
-            
             strike = round(spot_ltp / meta['strike_diff']) * meta['strike_diff']
             details = smart_trader.get_symbol_details(kite, meta['spot'])
             expiry = details['opt_expiries'][0]
@@ -198,16 +189,16 @@ class OrbSniperBot:
             
             trade_manager.create_trade_direct(
                 kite=kite,
-                mode=trade_mode,
+                mode=mode,
                 specific_symbol=symbol,
                 quantity=qty,
                 sl_points=30,
                 custom_targets=[], 
                 order_type=order_type,
                 target_controls=[],
-                risk_ratios=self.config['risk_reward']
+                risk_ratios=rr
             )
-            self.log(f"✅ Trade Placed: {symbol} [{trade_mode}]")
+            self.log(f"✅ Trade Placed: {symbol} [{mode}]")
             
         except Exception as e:
             self.log(f"❌ Execution Error: {e}")

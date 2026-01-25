@@ -20,13 +20,14 @@ class ORBStrategyManager:
         # --- Strategy Constants ---
         self.timeframe = "5minute"
         self.nifty_spot_token = 256265 # NSE:NIFTY 50
-        self.quantity = 50             # Default Lot Size (1 Lot)
+        
+        # --- Dynamic Quantity Management ---
+        self.lot_size = 50 # Default, will update on start
+        self.lots = 1      # User defined multiplier
         
         # --- Strategy State ---
         self.range_high = 0
         self.range_low = 0
-        
-        # Signal State: "NONE", "WAIT_BUY", "WAIT_SELL"
         self.signal_state = "NONE" 
         self.trigger_level = 0
         self.signal_candle_time = None 
@@ -43,12 +44,29 @@ class ORBStrategyManager:
         # Cached Tokens
         self.nifty_fut_token = None
 
-    def start(self):
+    def start(self, lots=1):
+        """Starts the strategy with specific lot count"""
         if not self.active:
+            # 1. Fetch Dynamic Lot Size
+            try:
+                # Fetch NIFTY details to get current lot size
+                det = smart_trader.get_symbol_details(self.kite, "NIFTY")
+                fetched_lot = int(det.get('lot_size', 0))
+                if fetched_lot > 0:
+                    self.lot_size = fetched_lot
+                    print(f"ℹ️ [ORB] Updated Nifty Lot Size: {self.lot_size}")
+                else:
+                    print(f"⚠️ [ORB] Could not fetch Lot Size. Using default: {self.lot_size}")
+            except Exception as e:
+                print(f"⚠️ [ORB] Failed to fetch lot size, using default {self.lot_size}: {e}")
+
+            self.lots = int(lots)
+            total_qty = self.lots * self.lot_size
+            
             self.active = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
-            print("🚀 [ORB] Strategy Engine Started")
+            print(f"🚀 [ORB] Strategy Engine Started | Lots: {self.lots} | Lot Size: {self.lot_size} | Total Qty: {total_qty}")
 
     def stop(self):
         self.active = False
@@ -88,7 +106,6 @@ class ORBStrategyManager:
                 return df.tail(n) # Return only last N
             return pd.DataFrame()
         except Exception as e:
-            # print(f"⚠️ [ORB] History API Error: {e}") 
             return pd.DataFrame()
 
     def _run_loop(self):
@@ -111,7 +128,6 @@ class ORBStrategyManager:
                         print("⏰ [ORB] EOD Reached. Stopping Strategy.")
                         self.is_done_for_day = True
                         self.signal_state = "NONE"
-                        # Optional: Trigger panic exit here if required
                     time.sleep(60)
                     continue
 
@@ -150,7 +166,6 @@ class ORBStrategyManager:
                     continue
 
                 # --- 4. Reversal Time Filter (Phase 6) ---
-                # "Time Check: Is Current Time < 13:00? No: Stop Trading."
                 # Only applies if SL was hit previously.
                 if self.sl_hit_count > 0:
                     if curr_time >= datetime.time(13, 0):
@@ -160,7 +175,6 @@ class ORBStrategyManager:
                         continue
 
                 # --- 5. Phase 3: Signal Generation (Every Candle Close) ---
-                # We run this check often, but logic relies on COMPLETED candles.
                 self._check_signals()
 
                 # --- 6. Phase 4: Entry Trigger (Real-Time) ---
@@ -187,22 +201,14 @@ class ORBStrategyManager:
         if len(fut_df) < 5: return
 
         # The "Signal Candle" is the last COMPLETED candle (iloc[-2])
-        # The "Current Candle" is forming (iloc[-1]) - we ignore forming for signal generation
-        
         sig_candle_spot = spot_df.iloc[-2]
         sig_candle_fut = fut_df.iloc[-2]
         
         # --- Volume Check Logic ---
         # "Is Volume(Futures) > Average(Volume, 3)?"
-        # We need average of the 3 candles BEFORE the signal candle.
-        # Indices: Signal is -2. Previous 3 are -3, -4, -5.
         vol_avg = fut_df['volume'].iloc[-5:-2].mean()
         curr_vol = sig_candle_fut['volume']
         volume_ok = curr_vol > vol_avg
-
-        # Check Timestamps to avoid reprocessing the same candle
-        # We store 'last_processed_candle' logic implicitly by checking state changes 
-        # or we can just evaluate state idempotently.
         
         close_price = sig_candle_spot['close']
         candle_high = sig_candle_spot['high']
@@ -223,8 +229,6 @@ class ORBStrategyManager:
                     self.trigger_level = candle_high
                     self.signal_candle_time = candle_time
             else:
-                # Volume failed - if we were in WAIT_SELL and price crossed High, 
-                # strictly speaking, the SELL setup is invalidated by the Switch rule
                 if self.signal_state == "WAIT_SELL":
                     print("⚠️ [ORB] Switch Rule: Sell Setup Invalidated (High Broken). Resetting.")
                     self.signal_state = "NONE"
@@ -249,7 +253,7 @@ class ORBStrategyManager:
 
     def _check_trigger(self):
         """
-        Checks real-time LTP against the Trigger Level (High/Low of Signal Candle).
+        Checks real-time LTP against the Trigger Level.
         """
         # Get Real-Time Spot Price
         ltp = smart_trader.get_ltp(self.kite, "NSE:NIFTY 50")
@@ -260,14 +264,12 @@ class ORBStrategyManager:
         
         # Scenario 1: WAIT_BUY
         if self.signal_state == "WAIT_BUY":
-            # IF Current_Price(Spot) > Trigger_Level
             if ltp > self.trigger_level:
                 triggered = True
                 trade_type = "CE"
 
         # Scenario 2: WAIT_SELL
         elif self.signal_state == "WAIT_SELL":
-            # IF Current_Price(Spot) < Trigger_Level
             if ltp < self.trigger_level:
                 triggered = True
                 trade_type = "PE"
@@ -281,7 +283,7 @@ class ORBStrategyManager:
         Executes the trade:
         1. Selects ATM Strike
         2. Calculates SL based on OPTION CHART of the Signal Candle
-        3. Places Order via TradeManager
+        3. Places Order via TradeManager with Dynamic Quantity
         """
         
         # 1. Identify ATM Strike
@@ -303,8 +305,6 @@ class ORBStrategyManager:
 
         # 3. Calculate Option Stop Loss
         # "Set Signal_Candle_SL = Low of this Current Candle (mapped to Option Chart)"
-        # Note: Even for Puts, since we are BUYING, the SL is the Low of the Option candle.
-        
         sl_price = 0
         entry_est = smart_trader.get_ltp(self.kite, symbol_name)
         
@@ -312,12 +312,10 @@ class ORBStrategyManager:
         opt_token = smart_trader.get_instrument_token(symbol_name, "NFO")
         
         if opt_token and self.signal_candle_time:
-            # We fetch a small window around the signal time
-            from_t = self.signal_candle_time
-            to_t = from_t + datetime.timedelta(minutes=10)
-            
             try:
-                # Fetch 5min data
+                # We fetch a small window around the signal time
+                from_t = self.signal_candle_time
+                to_t = from_t + datetime.timedelta(minutes=10)
                 ohlc = self.kite.historical_data(opt_token, from_t, to_t, self.timeframe)
                 if ohlc:
                     # The first record should correspond to the signal candle time
@@ -329,7 +327,7 @@ class ORBStrategyManager:
             except Exception as e:
                 print(f"⚠️ [ORB] SL Fetch Error: {e}")
 
-        # Safety Fallback if SL is invalid or missing
+        # Safety Fallback
         if sl_price == 0 or sl_price >= entry_est:
             sl_price = entry_est * 0.90 # 10% SL fallback
             print(f"⚠️ [ORB] Using Fallback SL: {sl_price}")
@@ -343,13 +341,10 @@ class ORBStrategyManager:
         
         print(f"🎯 [ORB] Plan: Entry~{entry_est} | SL:{sl_price} | T1:{target_1} | T2:{target_2}")
 
-        # 5. Configure Trade Manager
-        # Logic: 
-        # T1 (1:1): Exit 50%, Move SL to Cost.
-        # T2 (1:3): Exit Remaining.
-        
-        qty = self.quantity
-        half_qty = int(qty / 2)
+        # 5. Quantity & Targets Config
+        # Calculate Total Qty based on Lot Multiplier (self.lots) and Current Lot Size (self.lot_size)
+        total_qty = self.lots * self.lot_size
+        half_qty = int(total_qty / 2)
         
         t_controls = [
             {'enabled': True, 'lots': half_qty, 'trail_to_entry': True}, # Target 1
@@ -357,14 +352,11 @@ class ORBStrategyManager:
             {'enabled': False, 'lots': 0, 'trail_to_entry': False}
         ]
         
-        # Convert absolute prices to relative points for the API if needed, 
-        # but trade_manager.create_trade_direct supports custom_targets (absolute).
-        
         res = trade_manager.create_trade_direct(
             self.kite,
             mode="LIVE", # Mandated by requirements
             specific_symbol=symbol_name,
-            quantity=qty,
+            quantity=total_qty,
             sl_points=(entry_est - sl_price), # Initial SL points
             custom_targets=[target_1, target_2, 0],
             order_type="MARKET",
@@ -380,7 +372,7 @@ class ORBStrategyManager:
             self.current_trade_id = res['trade']['id']
             self.last_trade_side = trade_type
             self.signal_state = "NONE" # Reset Signal
-            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id}")
+            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id} | Qty: {total_qty}")
         else:
             print(f"❌ [ORB] Trade Failed: {res['message']}")
             self.signal_state = "NONE"

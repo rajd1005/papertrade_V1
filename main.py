@@ -714,16 +714,11 @@ def place_trade():
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)
     t.start()
+# --- ORB STRATEGY ROUTES ---
 @app.route('/strategy/orb')
 def orb_panel():
-    """Renders the ORB Settings Page with System Context."""
     global bot_active, login_state
-    
-    # We MUST pass these variables so dashboard.html knows we are Online
-    return render_template('orb_panel.html', 
-                           is_active=bot_active, 
-                           state=login_state, 
-                           login_url=kite.login_url() if kite else "")
+    return render_template('orb_panel.html', is_active=bot_active, state=login_state)
 
 @app.route('/api/orb/settings')
 def orb_get_settings():
@@ -733,6 +728,12 @@ def orb_get_settings():
 def orb_save_settings():
     orb_bot.update_config(request.json)
     return jsonify({"status": "success", "message": "Settings Saved"})
+
+@app.route('/api/orb/delete', methods=['POST'])
+def orb_delete_config():
+    idx = request.json.get('index')
+    orb_bot.delete_index_config(idx)
+    return jsonify({"status": "success", "message": f"Deleted Config for {idx}"})
 
 @app.route('/api/orb/toggle', methods=['POST'])
 def orb_toggle():

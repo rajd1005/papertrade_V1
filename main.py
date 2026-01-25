@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, redirect, flash, jsonify, url
 from kiteconnect import KiteConnect
 import config
 from managers import zerodha_ticker
+from managers.orb_strategy import bot as orb_bot
 
 # --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
@@ -713,6 +714,37 @@ def place_trade():
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)
     t.start()
+@app.route('/strategy/orb')
+def orb_panel():
+    """Renders the ORB Settings Page."""
+    return render_template('orb_panel.html')
 
+@app.route('/api/orb/settings')
+def orb_get_settings():
+    """Returns current config and logs."""
+    return jsonify({
+        **orb_bot.config,
+        "logs": orb_bot.logs
+    })
+
+@app.route('/api/orb/save', methods=['POST'])
+def orb_save_settings():
+    """Saves new settings."""
+    data = request.json
+    orb_bot.update_config(data)
+    return jsonify({"status": "success", "message": "Settings Saved Successfully"})
+
+@app.route('/api/orb/toggle', methods=['POST'])
+def orb_toggle():
+    """Enables/Disables the strategy."""
+    status = request.json.get('status')
+    orb_bot.update_config({"status": status})
+    return jsonify({"status": "success", "new_status": status})
+
+@app.route('/api/orb/logs')
+def orb_logs():
+    """Polls for latest logs."""
+    return jsonify({"logs": orb_bot.logs})
+    
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

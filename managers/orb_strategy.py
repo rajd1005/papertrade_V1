@@ -56,16 +56,17 @@ class OrbSniperBot:
 
     def update_config(self, new_config):
         with LOCK:
+            # Update Qty Map safely
             if 'qty_map' in new_config and 'qty_map' in self.config:
                 self.config['qty_map'].update(new_config['qty_map'])
                 del new_config['qty_map']
             
             self.config.update(new_config)
             self._save_json(CONFIG_FILE, self.config)
-            self.log(f"Config Updated. Mode: {self.config.get('trade_mode')} | Index: {self.config.get('selected_index')}")
+            self.log(f"Config Updated. Status: {self.config['status']}")
 
     def delete_index_config(self, index):
-        """Deletes a specific index config or Resets All."""
+        """Removes an index from the active trading list."""
         with LOCK:
             if index == "RESET_ALL":
                 self.config = DEFAULT_CONFIG.copy()
@@ -77,12 +78,13 @@ class OrbSniperBot:
             self._save_json(CONFIG_FILE, self.config)
 
     def get_active_symbols(self):
-        selection = self.config.get("selected_index", "NIFTY")
-        if selection == "ALL":
-            # Only trade indices that are explicitly in qty_map and > 0
-            saved_map = self.config.get('qty_map', {})
-            return [k for k in INDEX_MAP.keys() if saved_map.get(k, 0) > 0]
-        return [selection]
+        """
+        STRICT MODE: Returns ALL indices that have a Quantity > 0.
+        Ignores 'selected_index' dropdown state.
+        """
+        saved_map = self.config.get('qty_map', {})
+        # Return keys where quantity is greater than 0
+        return [k for k in INDEX_MAP.keys() if saved_map.get(k, 0) > 0]
 
     def _init_symbol_state(self, key):
         today = datetime.now(IST).strftime("%Y-%m-%d")
@@ -101,7 +103,10 @@ class OrbSniperBot:
             now = datetime.now(IST)
             if now.time() < dtime(9, 15): return
 
-            for key in self.get_active_symbols():
+            active_list = self.get_active_symbols()
+            if not active_list: return
+
+            for key in active_list:
                 self._process_symbol(kite, key, now)
 
     def _process_symbol(self, kite, key, now):
@@ -114,6 +119,7 @@ class OrbSniperBot:
         # PHASE 1: MARK RANGE (09:15-09:20)
         if state["status"] == "WAITING_RANGE":
             if now.time() >= dtime(9, 20, 5):
+                # Debounce log
                 if f"{key}_fetched" not in self.last_candle_check: 
                     self.log(f"{key}: Fetching First Candle...")
                     self.last_candle_check[f"{key}_fetched"] = True
@@ -177,7 +183,7 @@ class OrbSniperBot:
     def _execute_trade(self, kite, key, side, spot_ltp):
         try:
             qty = self.config['qty_map'].get(key, 0)
-            if qty == 0: return # Should not happen due to get_active_symbols filter
+            if qty <= 0: return # Config deleted/zeroed out
             
             order_type = self.config.get("order_type", "MARKET")
             trade_mode = self.config.get("trade_mode", "PAPER")

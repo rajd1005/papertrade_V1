@@ -4,76 +4,96 @@
 <div class="container-fluid p-4">
     <div class="row">
         <div class="col-12 mb-4 d-flex justify-content-between align-items-center">
-            <h2 class="text-light"><i class="fas fa-crosshairs text-warning"></i> 5-Min ORB Sniper Configuration</h2>
+            <div>
+                <h2 class="text-light"><i class="fas fa-crosshairs text-warning"></i> 5-Min ORB Sniper</h2>
+                <small class="text-muted">Automated Opening Range Breakout System</small>
+            </div>
             <div id="status-indicator" class="badge bg-secondary fs-5">LOADING...</div>
         </div>
 
-        <div class="col-md-6">
+        <div class="col-md-5">
             <div class="card bg-dark text-light border-secondary shadow">
-                <div class="card-header border-secondary">
-                    <h5 class="mb-0">🚀 Strategy Settings</h5>
+                <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">🚀 Strategy Configuration</h5>
+                    <div class="badge bg-info text-dark" id="live_ltp_badge">LTP: ...</div>
                 </div>
                 <div class="card-body">
                     <form id="orbSettingsForm">
                         
-                        <div class="mb-3">
-                            <label class="form-label text-info">Select Index to Trade</label>
-                            <select class="form-select bg-dark text-light border-secondary" id="index_selector">
-                                <option value="NIFTY">NIFTY 50</option>
-                                <option value="BANKNIFTY">BANK NIFTY</option>
-                                <option value="FINNIFTY">FIN NIFTY</option>
-                                <option value="ALL">ALL INDICES (Multi-Trade)</option>
-                            </select>
-                        </div>
-
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Nifty Qty</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="qty_nifty" value="50">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">BankNifty Qty</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="qty_banknifty" value="15">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">FinNifty Qty</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="qty_finnifty" value="40">
-                            </div>
-                        </div>
-
-                        <h6 class="text-warning mt-4">🛑 Filters & Logic</h6>
-                        <div class="row g-3 mb-3">
+                        <div class="row g-2 mb-3">
                             <div class="col-md-6">
-                                <label class="form-label">Min Range (Points)</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="min_range" value="10">
+                                <label class="form-label text-info">Index</label>
+                                <select class="form-select bg-dark text-light border-secondary" id="index_selector" onchange="fetchIndexDetails()">
+                                    <option value="NIFTY">NIFTY 50</option>
+                                    <option value="BANKNIFTY">BANK NIFTY</option>
+                                    <option value="FINNIFTY">FIN NIFTY</option>
+                                </select>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">Max Range (Points)</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="max_range" value="300">
+                                <label class="form-label text-warning">Trade Mode</label>
+                                <select class="form-select bg-dark text-light border-secondary" id="trade_mode">
+                                    <option value="PAPER">PAPER TRADING</option>
+                                    <option value="LIVE">🔴 LIVE TRADING</option>
+                                </select>
                             </div>
                         </div>
 
-                        <h6 class="text-success mt-2">🎯 Targets & Buffer</h6>
-                        <div class="row g-3 mb-3">
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Quantity</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control bg-dark text-light border-secondary" id="trade_qty">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="fetchIndexDetails()" title="Refresh Lot Size">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                </div>
+                                <div class="form-text text-muted" id="lot_size_hint">Std Lot: --</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Order Type</label>
+                                <select class="form-select bg-dark text-light border-secondary" id="order_type">
+                                    <option value="MARKET">MARKET</option>
+                                    <option value="SL-M">SL-M (Safer)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <hr class="border-secondary">
+
+                        <h6 class="text-warning"><i class="fas fa-filter"></i> 🛑 Filters & Logic</h6>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Min Range (Pts)</label>
+                                <input type="number" class="form-control bg-dark text-light border-secondary" id="min_range">
+                                <small class="text-muted" style="font-size: 0.7rem;">Prevents trading in flat/choppy markets.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Max Range (Pts)</label>
+                                <input type="number" class="form-control bg-dark text-light border-secondary" id="max_range">
+                                <small class="text-muted" style="font-size: 0.7rem;">Avoids entries after massive exhausted moves.</small>
+                            </div>
+                        </div>
+
+                        <h6 class="text-success mt-3"><i class="fas fa-bullseye"></i> Targets & Buffer</h6>
+                        <div class="row g-2 mb-3">
                             <div class="col-md-4">
                                 <label class="form-label">Buffer (Pts)</label>
-                                <input type="number" step="0.5" class="form-control bg-dark text-light border-secondary" id="buffer_points" value="1.0">
-                                <small class="text-muted">Added to Breakout Trigger</small>
+                                <input type="number" step="0.5" class="form-control bg-dark text-light border-secondary" id="buffer_points">
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label">Target 1 Ratio</label>
-                                <input type="number" step="0.1" class="form-control bg-dark text-light border-secondary" id="target1_ratio" value="1.0">
-                                <small class="text-muted">1.0 = 1:1 Risk Reward</small>
+                                <label class="form-label">Target 1 (xSL)</label>
+                                <input type="number" step="0.5" class="form-control bg-dark text-light border-secondary" id="target1_ratio">
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label">Target 2 Ratio</label>
-                                <input type="number" step="0.1" class="form-control bg-dark text-light border-secondary" id="target2_ratio" value="3.0">
+                                <label class="form-label">Target 2 (xSL)</label>
+                                <input type="number" step="0.5" class="form-control bg-dark text-light border-secondary" id="target2_ratio">
                             </div>
                         </div>
 
                         <div class="d-grid gap-2 mt-4">
-                            <button type="button" class="btn btn-primary" onclick="saveSettings()">💾 Save Configuration</button>
-                            <hr class="border-secondary">
+                            <button type="button" class="btn btn-primary fw-bold" onclick="saveSettings()">
+                                <i class="fas fa-save"></i> Save Configuration
+                            </button>
                             <div class="btn-group" role="group">
                                 <button type="button" class="btn btn-outline-success" id="btn_start" onclick="toggleStrategy('ENABLED')">▶ START STRATEGY</button>
                                 <button type="button" class="btn btn-outline-danger" id="btn_stop" onclick="toggleStrategy('DISABLED')">⏹ STOP STRATEGY</button>
@@ -85,13 +105,15 @@
             </div>
         </div>
 
-        <div class="col-md-6">
+        <div class="col-md-7">
             <div class="card bg-dark text-light border-secondary shadow h-100">
                 <div class="card-header border-secondary">
-                    <h5 class="mb-0">📊 Live Execution Status</h5>
+                    <h5 class="mb-0">📊 Live Strategy Logs</h5>
                 </div>
-                <div class="card-body font-monospace" id="console_log" style="max-height: 500px; overflow-y: auto; font-size: 0.9em;">
-                    <p class="text-muted">Waiting for updates...</p>
+                <div class="card-body font-monospace p-0" style="background-color: #0d1117;">
+                    <div id="console_log" class="p-3" style="max-height: 600px; overflow-y: auto; font-size: 0.85rem; color: #c9d1d9;">
+                        <span class="text-muted">Waiting for strategy events...</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -99,16 +121,63 @@
 </div>
 
 <script>
-    // Load Settings on Page Load
+    // --- INITIALIZATION ---
     document.addEventListener("DOMContentLoaded", function() {
+        loadSettings();
+        setInterval(fetchLogs, 2000); // Poll logs every 2s
+        setInterval(refreshLTP, 5000); // Poll LTP every 5s
+    });
+
+    // --- AUTO-FETCH LTP & LOT SIZE ---
+    function fetchIndexDetails() {
+        const symbol = document.getElementById('index_selector').value;
+        const btn = document.getElementById('lot_size_hint');
+        
+        // Call main system API to get details
+        fetch(`/api/details?symbol=${symbol}`)
+            .then(res => res.json())
+            .then(data => {
+                if(data.ltp) {
+                    document.getElementById('live_ltp_badge').innerText = `LTP: ${data.ltp}`;
+                    document.getElementById('live_ltp_badge').className = "badge bg-success text-white";
+                }
+                
+                if(data.lot_size) {
+                    document.getElementById('lot_size_hint').innerText = `Std Lot: ${data.lot_size}`;
+                    
+                    // Auto-fill IF the field is empty or user requests it
+                    const currentQty = document.getElementById('trade_qty').value;
+                    if(!currentQty || currentQty == 0) {
+                        document.getElementById('trade_qty').value = data.lot_size;
+                    }
+                }
+            })
+            .catch(err => console.error("Error fetching details:", err));
+    }
+
+    function refreshLTP() {
+        const symbol = document.getElementById('index_selector').value;
+        fetch(`/api/details?symbol=${symbol}`)
+            .then(res => res.json())
+            .then(data => {
+                if(data.ltp) document.getElementById('live_ltp_badge').innerText = `LTP: ${data.ltp}`;
+            });
+    }
+
+    // --- SETTINGS MANAGEMENT ---
+    function loadSettings() {
         fetch('/api/orb/settings')
             .then(response => response.json())
             .then(data => {
                 document.getElementById('index_selector').value = data.selected_index || 'NIFTY';
-                document.getElementById('qty_nifty').value = data.qty_map.NIFTY || 50;
-                document.getElementById('qty_banknifty').value = data.qty_map.BANKNIFTY || 15;
-                document.getElementById('qty_finnifty').value = data.qty_map.FINNIFTY || 40;
+                document.getElementById('trade_mode').value = data.trade_mode || 'PAPER';
+                document.getElementById('order_type').value = data.order_type || 'MARKET';
                 
+                // Load Quantity for specific index
+                const qtyMap = data.qty_map || {};
+                const currentIdx = data.selected_index || 'NIFTY';
+                document.getElementById('trade_qty').value = qtyMap[currentIdx] || 50;
+
                 document.getElementById('min_range').value = data.min_range || 10;
                 document.getElementById('max_range').value = data.max_range || 300;
                 document.getElementById('buffer_points').value = data.buffer_points || 1.0;
@@ -116,36 +185,43 @@
                 document.getElementById('target2_ratio').value = data.risk_reward[1] || 3.0;
 
                 updateStatusUI(data.status);
+                fetchIndexDetails(); // Initial fetch
             });
-            
-        // Poll for logs/status
-        setInterval(fetchStatus, 2000);
-    });
+    }
 
     function saveSettings() {
-        const payload = {
-            selected_index: document.getElementById('index_selector').value,
-            qty_map: {
-                "NIFTY": parseInt(document.getElementById('qty_nifty').value),
-                "BANKNIFTY": parseInt(document.getElementById('qty_banknifty').value),
-                "FINNIFTY": parseInt(document.getElementById('qty_finnifty').value)
-            },
-            min_range: parseInt(document.getElementById('min_range').value),
-            max_range: parseInt(document.getElementById('max_range').value),
-            buffer_points: parseFloat(document.getElementById('buffer_points').value),
-            risk_reward: [
-                parseFloat(document.getElementById('target1_ratio').value),
-                parseFloat(document.getElementById('target2_ratio').value)
-            ]
-        };
+        const idx = document.getElementById('index_selector').value;
+        const currentQty = parseInt(document.getElementById('trade_qty').value);
+        
+        // We need to fetch current config first to preserve other indices' quantities
+        fetch('/api/orb/settings')
+            .then(res => res.json())
+            .then(currentConfig => {
+                const qtyMap = currentConfig.qty_map || {};
+                qtyMap[idx] = currentQty; // Update only current index
 
-        fetch('/api/orb/save', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        })
-        .then(res => res.json())
-        .then(data => alert(data.message));
+                const payload = {
+                    selected_index: idx,
+                    trade_mode: document.getElementById('trade_mode').value,
+                    order_type: document.getElementById('order_type').value,
+                    qty_map: qtyMap,
+                    min_range: parseInt(document.getElementById('min_range').value),
+                    max_range: parseInt(document.getElementById('max_range').value),
+                    buffer_points: parseFloat(document.getElementById('buffer_points').value),
+                    risk_reward: [
+                        parseFloat(document.getElementById('target1_ratio').value),
+                        parseFloat(document.getElementById('target2_ratio').value)
+                    ]
+                };
+
+                fetch('/api/orb/save', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => alert(data.message));
+            });
     }
 
     function toggleStrategy(state) {
@@ -155,9 +231,7 @@
             body: JSON.stringify({ status: state })
         })
         .then(res => res.json())
-        .then(data => {
-            updateStatusUI(data.new_status);
-        });
+        .then(data => updateStatusUI(data.new_status));
     }
 
     function updateStatusUI(status) {
@@ -178,13 +252,18 @@
         }
     }
 
-    function fetchStatus() {
+    function fetchLogs() {
         fetch('/api/orb/logs')
             .then(res => res.json())
             .then(data => {
                 let html = "";
                 data.logs.forEach(log => {
-                    html += `<div><span class="text-muted">[${log.time}]</span> ${log.msg}</div>`;
+                    let colorClass = "text-light";
+                    if(log.msg.includes("TRIGGER")) colorClass = "text-warning fw-bold";
+                    if(log.msg.includes("Trade Placed")) colorClass = "text-success fw-bold";
+                    if(log.msg.includes("Error") || log.msg.includes("Rejection")) colorClass = "text-danger";
+                    
+                    html += `<div class="border-bottom border-secondary py-1"><span class="text-muted" style="font-size:0.75em">[${log.time}]</span> <span class="${colorClass}">${log.msg}</span></div>`;
                 });
                 document.getElementById('console_log').innerHTML = html;
             });

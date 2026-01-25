@@ -204,21 +204,51 @@ def secure_login_page():
 def api_status():
     return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
 
+# --- ORB STRATEGY ROUTES (NEW) ---
+
+@app.route('/api/orb/params')
+def api_orb_params():
+    """Provides status and current lot size from server"""
+    ls = 50 
+    try:
+        # Fetch fresh lot size
+        det = smart_trader.get_symbol_details(kite, "NIFTY")
+        ls = int(det.get('lot_size', 50))
+    except: pass
+    
+    active = False
+    current_lots = 1
+    
+    # If bot is running, get its actual state
+    if orb_bot:
+        active = orb_bot.active
+        current_lots = orb_bot.lots
+    
+    return jsonify({
+        "active": active,
+        "lot_size": ls,
+        "current_lots": current_lots
+    })
+
 @app.route('/api/orb/toggle', methods=['POST'])
 def api_orb_toggle():
     global orb_bot
     action = request.json.get('action') # 'start' or 'stop'
+    lots = int(request.json.get('lots', 1))
+    
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
         
     if action == 'start':
-        orb_bot.start()
-        return jsonify({"status": "success", "message": "ORB Strategy Started"})
+        orb_bot.start(lots=lots)
+        return jsonify({"status": "success", "message": f"✅ ORB Started with {lots} Lots"})
     elif action == 'stop':
         orb_bot.stop()
-        return jsonify({"status": "success", "message": "ORB Strategy Stopped"})
+        return jsonify({"status": "success", "message": "🛑 ORB Stopped"})
     
     return jsonify({"active": orb_bot.active})
+
+# ---------------------------------
 
 @app.route('/reset_connection')
 def reset_connection():

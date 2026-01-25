@@ -28,6 +28,7 @@
                                     <option value="BANKNIFTY">BANK NIFTY</option>
                                     <option value="FINNIFTY">FIN NIFTY</option>
                                     <option value="SENSEX">SENSEX</option>
+                                    <option value="ALL" class="fw-bold text-warning">🌟 ALL INDICES</option>
                                 </select>
                             </div>
                             <div class="col-md-6">
@@ -43,9 +44,9 @@
                             <div class="col-md-6">
                                 <label class="form-label">Quantity (Lots)</label>
                                 <div class="input-group">
-                                    <button class="btn btn-outline-secondary" type="button" onclick="adjQty(-1)">-</button>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="adjQty(-1)" id="btn_minus">-</button>
                                     <input type="number" class="form-control bg-dark text-light border-secondary text-center" id="trade_qty" readonly>
-                                    <button class="btn btn-outline-secondary" type="button" onclick="adjQty(1)">+</button>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="adjQty(1)" id="btn_plus">+</button>
                                 </div>
                                 <div class="form-text text-muted" id="lot_size_hint">Std Lot: --</div>
                             </div>
@@ -107,9 +108,8 @@
 </div>
 
 <script>
-    let curLotSize = 0; // Global for quantity adjustment
+    let curLotSize = 0; 
 
-    // --- INITIALIZATION ---
     document.addEventListener("DOMContentLoaded", function() {
         fetch('/api/orb/settings')
             .then(response => response.json())
@@ -128,69 +128,69 @@
         document.getElementById('index_selector').value = data.selected_index || 'NIFTY';
         document.getElementById('trade_mode').value = data.trade_mode || 'PAPER';
         document.getElementById('order_type').value = data.order_type || 'MARKET';
-        
         document.getElementById('buffer_points').value = data.buffer_points || 1.0;
         document.getElementById('target1_ratio').value = data.risk_reward[0] || 1.0;
         document.getElementById('target2_ratio').value = data.risk_reward[1] || 3.0;
 
-        // Force fetch details to set Lot Size logic correctly
         fetchIndexDetails(false, data.qty_map); 
-
         updateStatusUI(data.status);
     }
 
-    // --- AUTO-FETCH LTP & LOT SIZE ---
     function fetchIndexDetails(userInitiated=false, savedQtyMap=null) {
         const symbol = document.getElementById('index_selector').value;
         const qtyField = document.getElementById('trade_qty');
         const hint = document.getElementById('lot_size_hint');
-        
+        const ltpBadge = document.getElementById('live_ltp_badge');
+
+        // HANDLE ALL INDICES MODE
+        if (symbol === 'ALL') {
+            qtyField.value = "MULTI";
+            qtyField.disabled = true;
+            document.getElementById('btn_plus').disabled = true;
+            document.getElementById('btn_minus').disabled = true;
+            hint.innerText = "Configured Individually";
+            ltpBadge.innerText = "Mode: Multi-Index";
+            ltpBadge.className = "badge bg-warning text-dark";
+            return;
+        }
+
+        // ENABLE CONTROLS
+        qtyField.disabled = false;
+        document.getElementById('btn_plus').disabled = false;
+        document.getElementById('btn_minus').disabled = false;
+
         fetch(`/api/details?symbol=${symbol}`)
             .then(res => res.json())
             .then(data => {
-                // Update LTP
                 if(data.ltp) {
-                    document.getElementById('live_ltp_badge').innerText = `LTP: ${data.ltp}`;
-                    document.getElementById('live_ltp_badge').className = "badge bg-success text-white";
+                    ltpBadge.innerText = `LTP: ${data.ltp}`;
+                    ltpBadge.className = "badge bg-success text-white";
                 }
                 
-                // Update Lot Size Logic
                 if(data.lot_size > 0) {
                     curLotSize = data.lot_size;
                     hint.innerText = `Std Lot: ${curLotSize}`;
                     
-                    // Logic to set Quantity:
-                    // 1. If we passed a saved map (initial load), try to use that.
-                    // 2. If user changed index, default to 1 lot (curLotSize).
-                    
                     if (savedQtyMap && savedQtyMap[symbol]) {
                         qtyField.value = savedQtyMap[symbol];
-                    } else if (userInitiated || !qtyField.value) {
+                    } else if (userInitiated || !qtyField.value || qtyField.value === "MULTI") {
                         qtyField.value = curLotSize;
                     }
-                    
-                    // Set Step/Min for validation
-                    qtyField.setAttribute('min', curLotSize);
-                    qtyField.setAttribute('step', curLotSize);
                 }
             });
     }
 
-    // --- QUANTITY ADJUSTMENT (Like New Trade Form) ---
     function adjQty(dir) {
-        if (curLotSize === 0) return;
-        
+        if (curLotSize === 0 || document.getElementById('index_selector').value === 'ALL') return;
         let qtyField = document.getElementById('trade_qty');
         let current = parseInt(qtyField.value) || 0;
         let newVal = current + (dir * curLotSize);
-        
-        if (newVal >= curLotSize) {
-            qtyField.value = newVal;
-        }
+        if (newVal >= curLotSize) qtyField.value = newVal;
     }
 
     function refreshLTP() {
         const symbol = document.getElementById('index_selector').value;
+        if(symbol === 'ALL') return;
         fetch(`/api/details?symbol=${symbol}`)
             .then(res => res.json())
             .then(data => {
@@ -200,21 +200,23 @@
 
     function saveSettings() {
         const idx = document.getElementById('index_selector').value;
-        const currentQty = parseInt(document.getElementById('trade_qty').value) || 0;
         
-        // Explicitly grab targets
-        const t1 = parseFloat(document.getElementById('target1_ratio').value);
-        const t2 = parseFloat(document.getElementById('target2_ratio').value);
-        const buff = parseFloat(document.getElementById('buffer_points').value);
-
-        const payload = {
+        let payload = {
             selected_index: idx,
             trade_mode: document.getElementById('trade_mode').value,
             order_type: document.getElementById('order_type').value,
-            qty_map: { [idx]: currentQty }, 
-            buffer_points: buff,
-            risk_reward: [t1, t2]
+            buffer_points: parseFloat(document.getElementById('buffer_points').value),
+            risk_reward: [
+                parseFloat(document.getElementById('target1_ratio').value),
+                parseFloat(document.getElementById('target2_ratio').value)
+            ]
         };
+
+        // Only send Qty update if NOT in ALL mode
+        if (idx !== 'ALL') {
+            const currentQty = parseInt(document.getElementById('trade_qty').value) || 0;
+            payload.qty_map = { [idx]: currentQty };
+        }
 
         fetch('/api/orb/save', {
             method: 'POST',
@@ -264,7 +266,6 @@
                     if(log.msg.includes("TRIGGER")) colorClass = "text-warning fw-bold";
                     if(log.msg.includes("Trade Placed")) colorClass = "text-success fw-bold";
                     if(log.msg.includes("Error") || log.msg.includes("Rejection")) colorClass = "text-danger";
-                    
                     html += `<div class="border-bottom border-secondary py-1"><span class="text-muted" style="font-size:0.75em">[${log.time}]</span> <span class="${colorClass}">${log.msg}</span></div>`;
                 });
                 document.getElementById('console_log').innerHTML = html;

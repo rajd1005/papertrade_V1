@@ -5,7 +5,6 @@ import threading
 from datetime import datetime, time as dtime
 import pytz
 
-# Correct Imports
 import smart_trader
 from managers import trade_manager, common
 
@@ -18,7 +17,8 @@ STATE_FILE = "orb_state.json"
 DEFAULT_CONFIG = {
     "status": "DISABLED",
     "selected_index": "NIFTY",
-    "order_type": "MARKET",         # NEW: User can select LIMIT / MARKET / SL-M
+    "trade_mode": "PAPER",          # NEW: PAPER or LIVE
+    "order_type": "MARKET",         # NEW: MARKET or SL-M
     "qty_map": {"NIFTY": 50, "BANKNIFTY": 15, "FINNIFTY": 40},
     "min_range": 10,
     "max_range": 300,
@@ -59,11 +59,10 @@ class OrbSniperBot:
         with LOCK:
             self.config.update(new_config)
             self._save_json(CONFIG_FILE, self.config)
-            self.log(f"Config Updated. Status: {self.config['status']}")
+            self.log(f"Config Updated. Status: {self.config['status']} | Mode: {self.config.get('trade_mode')}")
 
     def get_active_symbols(self):
         selection = self.config.get("selected_index", "NIFTY")
-        if selection == "ALL": return ["NIFTY", "BANKNIFTY"]
         return [selection]
 
     def _init_symbol_state(self, key):
@@ -120,12 +119,10 @@ class OrbSniperBot:
         # PHASE 2: SCAN
         elif state["status"] == "SCANNING":
             window = f"{key}_{now.hour}:{now.minute}"
-            # Check only on candle close
             if (now.minute % 5 == 0) and (5 <= now.second <= 20) and self.last_candle_check.get(key) != window:
                 self.last_candle_check[key] = window
                 
                 token = smart_trader.get_instrument_token(spot_sym, "NSE")
-                # Fetch last 2 candles
                 data = smart_trader.fetch_historical_data(kite, token, now - __import__('datetime').timedelta(minutes=15), now, "5minute")
                 
                 if data:
@@ -137,14 +134,12 @@ class OrbSniperBot:
                     elif close < state['range_low']: side = "PUT"
                     
                     if side:
-                        # HIGH/LOW TRIGGER LOGIC
                         base = last['high'] if side == "CALL" else last['low']
                         trigger = base + self.config['buffer_points'] if side == "CALL" else base - self.config['buffer_points']
                         
                         state["signal_side"] = side
                         state["trigger_level"] = trigger
                         state["status"] = "TRIGGER_PENDING"
-                        
                         self.log(f"{key}: ⚠️ {side} Signal! Waiting for Trigger @ {trigger}")
                         self._save_json(STATE_FILE, self.state)
 
@@ -165,7 +160,8 @@ class OrbSniperBot:
     def _execute_trade(self, kite, key, side, spot_ltp):
         try:
             qty = self.config['qty_map'].get(key, 50)
-            order_type = self.config.get("order_type", "MARKET") # Uses Configured Order Type
+            order_type = self.config.get("order_type", "MARKET")
+            trade_mode = self.config.get("trade_mode", "PAPER") # USES SELECTED MODE
             meta = INDEX_MAP[key]
             
             strike = round(spot_ltp / meta['strike_diff']) * meta['strike_diff']
@@ -175,20 +171,18 @@ class OrbSniperBot:
             opt_type = "CE" if side == "CALL" else "PE"
             symbol = smart_trader.get_exact_symbol(meta['fut_fmt'], expiry, strike, opt_type)
             
-            # Use Trade Manager (Same as your manual system)
-            # This ensures Telegram Notifications work automatically
             trade_manager.create_trade_direct(
                 kite=kite,
-                mode="PAPER", # Change to LIVE if needed, or add toggle in UI
+                mode=trade_mode,  # Passes PAPER or LIVE correctly
                 specific_symbol=symbol,
                 quantity=qty,
-                sl_points=30, # Default SL, user can modify in Trade Tab after entry
+                sl_points=30,
                 custom_targets=[], 
-                order_type=order_type, # Using user selection
+                order_type=order_type,
                 target_controls=[],
                 risk_ratios=self.config['risk_reward']
             )
-            self.log(f"✅ Trade Placed: {symbol} [{order_type}]")
+            self.log(f"✅ Trade Placed: {symbol} [{trade_mode}]")
             
         except Exception as e:
             self.log(f"❌ Execution Error: {e}")

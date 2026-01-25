@@ -4,7 +4,11 @@ import os
 import threading
 from datetime import datetime, time as dtime
 import pytz
-from managers import smart_trader, trade_manager, common
+
+# --- CORRECTED IMPORTS ---
+import smart_trader  # Correct: Imports from root directory
+from managers import trade_manager, common
+# -------------------------
 
 IST = pytz.timezone('Asia/Kolkata')
 LOCK = threading.Lock()
@@ -112,11 +116,13 @@ class OrbSniperBot:
         
         # --- PHASE 1: MARK RANGE (09:15 - 09:20) ---
         if state["status"] == "WAITING_RANGE":
+            # Wait until 09:20:05 to ensure candle closes
             if now.time() >= dtime(9, 20, 5):
                 self.log(f"{key}: Fetching First Candle...")
                 
                 # Fetch 09:15 Candle
                 token = smart_trader.get_instrument_token(spot_symbol, "NSE")
+                # Time range for 09:15 candle
                 from_t = now.replace(hour=9, minute=15, second=0)
                 to_t = now.replace(hour=9, minute=20, second=0)
                 
@@ -161,19 +167,16 @@ class OrbSniperBot:
                     if side:
                         self.log(f"{key}: {side} Breakout Detected! Checking Volume...")
                         
-                        # Volume Check (Simplified for stability)
-                        # Assumes volume is fine for now or add Futures fetching here
+                        # Volume Check logic could be added here
                         
                         state["signal_side"] = side
-                        state["trigger_level"] = last['high'] + self.config['buffer_points'] if side == "CALL" else last['low'] - self.config['buffer_points']
+                        # High of Signal Candle for Call, Low for Put
+                        base_trigger = last['high'] if side == "CALL" else last['low']
                         
-                        # Find Option SL (Low of Signal Candle)
-                        atm = round(last['close'] / meta['strike_diff']) * meta['strike_diff']
-                        opt_type = "CE" if side == "CALL" else "PE"
-                        
-                        # Get Option Symbol and Low
-                        # (Requires fetch logic, simplified here)
-                        # For now, we will use a point-based SL fallback if chart lookup fails in real-time
+                        if side == "CALL":
+                            state["trigger_level"] = base_trigger + self.config['buffer_points']
+                        else:
+                            state["trigger_level"] = base_trigger - self.config['buffer_points']
                         
                         state["status"] = "TRIGGER_PENDING"
                         self.log(f"{key}: Waiting for Trigger @ {state['trigger_level']}")
@@ -203,19 +206,25 @@ class OrbSniperBot:
             
             # Get Expiry
             details = smart_trader.get_symbol_details(kite, meta['spot'])
+            if not details or not details.get('opt_expiries'):
+                self.log(f"{key}: Failed to fetch Expiry")
+                return
+
             expiry = details['opt_expiries'][0]
             
             opt_type = "CE" if side == "CALL" else "PE"
             symbol = smart_trader.get_exact_symbol(meta['fut_fmt'], expiry, strike, opt_type)
             
-            # Risk Calc
-            # Simple assumption: SL is 10% of premium or based on Chart
-            # For robustness, we use a fixed point SL derived from config if chart SL fails
-            sl_pts = 30 # Default
+            if not symbol:
+                self.log(f"{key}: Failed to find Option Symbol")
+                return
+
+            # Risk Calc (Default fallback)
+            sl_pts = 30 
             
             trade_manager.create_trade_direct(
                 kite=kite,
-                mode="PAPER", # Or "LIVE" based on further config
+                mode="PAPER", # Default to PAPER, can be enhanced to read from config
                 specific_symbol=symbol,
                 quantity=qty,
                 sl_points=sl_pts,

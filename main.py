@@ -716,34 +716,32 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t.start()
 @app.route('/strategy/orb')
 def orb_panel():
-    """Renders the ORB Settings Page."""
-    return render_template('orb_panel.html')
+    """Renders the ORB Settings Page with System Context."""
+    global bot_active, login_state
+    
+    # We MUST pass these variables so dashboard.html knows we are Online
+    return render_template('orb_panel.html', 
+                           is_active=bot_active, 
+                           state=login_state, 
+                           login_url=kite.login_url() if kite else "")
 
 @app.route('/api/orb/settings')
 def orb_get_settings():
-    """Returns current config and logs."""
-    return jsonify({
-        **orb_bot.config,
-        "logs": orb_bot.logs
-    })
+    return jsonify({**orb_bot.config, "logs": orb_bot.logs})
 
 @app.route('/api/orb/save', methods=['POST'])
 def orb_save_settings():
-    """Saves new settings."""
-    data = request.json
-    orb_bot.update_config(data)
-    return jsonify({"status": "success", "message": "Settings Saved Successfully"})
+    orb_bot.update_config(request.json)
+    return jsonify({"status": "success", "message": "Settings Saved"})
 
 @app.route('/api/orb/toggle', methods=['POST'])
 def orb_toggle():
-    """Enables/Disables the strategy."""
     status = request.json.get('status')
     orb_bot.update_config({"status": status})
     return jsonify({"status": "success", "new_status": status})
 
 @app.route('/api/orb/logs')
 def orb_logs():
-    """Polls for latest logs."""
     return jsonify({"logs": orb_bot.logs})
     
 if __name__ == "__main__":

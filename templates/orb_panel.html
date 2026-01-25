@@ -43,7 +43,7 @@
                                 <label class="form-label">Quantity</label>
                                 <div class="input-group">
                                     <input type="number" class="form-control bg-dark text-light border-secondary" id="trade_qty">
-                                    <button class="btn btn-outline-secondary" type="button" onclick="fetchIndexDetails()" title="Refresh Lot Size">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="fetchIndexDetails(true)" title="Force Refresh">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
                                 </div>
@@ -59,20 +59,6 @@
                         </div>
 
                         <hr class="border-secondary">
-
-                        <h6 class="text-warning"><i class="fas fa-filter"></i> 🛑 Filters & Logic</h6>
-                        <div class="row g-2 mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Min Range (Pts)</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="min_range">
-                                <small class="text-muted" style="font-size: 0.7rem;">Prevents trading in flat/choppy markets.</small>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Max Range (Pts)</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="max_range">
-                                <small class="text-muted" style="font-size: 0.7rem;">Avoids entries after massive exhausted moves.</small>
-                            </div>
-                        </div>
 
                         <h6 class="text-success mt-3"><i class="fas fa-bullseye"></i> Targets & Buffer</h6>
                         <div class="row g-2 mb-3">
@@ -123,17 +109,43 @@
 <script>
     // --- INITIALIZATION ---
     document.addEventListener("DOMContentLoaded", function() {
-        loadSettings();
-        setInterval(fetchLogs, 2000); // Poll logs every 2s
-        setInterval(refreshLTP, 5000); // Poll LTP every 5s
+        // First load settings, THEN fetch details
+        fetch('/api/orb/settings')
+            .then(response => response.json())
+            .then(data => {
+                applySettings(data);
+                fetchIndexDetails(); // Auto-fetch lot size/LTP on load
+                setInterval(fetchLogs, 2000);
+                setInterval(refreshLTP, 5000);
+            })
+            .catch(err => {
+                console.error("Init Error:", err);
+                document.getElementById('status-indicator').innerText = "ERROR";
+            });
     });
 
-    // --- AUTO-FETCH LTP & LOT SIZE ---
-    function fetchIndexDetails() {
-        const symbol = document.getElementById('index_selector').value;
-        const btn = document.getElementById('lot_size_hint');
+    function applySettings(data) {
+        document.getElementById('index_selector').value = data.selected_index || 'NIFTY';
+        document.getElementById('trade_mode').value = data.trade_mode || 'PAPER';
+        document.getElementById('order_type').value = data.order_type || 'MARKET';
         
-        // Call main system API to get details
+        // Load Quantity for specific index
+        const qtyMap = data.qty_map || {};
+        const currentIdx = data.selected_index || 'NIFTY';
+        document.getElementById('trade_qty').value = qtyMap[currentIdx] || ''; // Leave empty if not found, to trigger auto-fetch
+
+        document.getElementById('buffer_points').value = data.buffer_points || 1.0;
+        document.getElementById('target1_ratio').value = data.risk_reward[0] || 1.0;
+        document.getElementById('target2_ratio').value = data.risk_reward[1] || 3.0;
+
+        updateStatusUI(data.status);
+    }
+
+    // --- AUTO-FETCH LTP & LOT SIZE ---
+    function fetchIndexDetails(force=false) {
+        const symbol = document.getElementById('index_selector').value;
+        const qtyField = document.getElementById('trade_qty');
+        
         fetch(`/api/details?symbol=${symbol}`)
             .then(res => res.json())
             .then(data => {
@@ -145,14 +157,12 @@
                 if(data.lot_size) {
                     document.getElementById('lot_size_hint').innerText = `Std Lot: ${data.lot_size}`;
                     
-                    // Auto-fill IF the field is empty or user requests it
-                    const currentQty = document.getElementById('trade_qty').value;
-                    if(!currentQty || currentQty == 0) {
-                        document.getElementById('trade_qty').value = data.lot_size;
+                    // Auto-fill IF empty OR forced
+                    if(force || !qtyField.value || qtyField.value == 0) {
+                        qtyField.value = data.lot_size;
                     }
                 }
-            })
-            .catch(err => console.error("Error fetching details:", err));
+            });
     }
 
     function refreshLTP() {
@@ -164,64 +174,29 @@
             });
     }
 
-    // --- SETTINGS MANAGEMENT ---
-    function loadSettings() {
-        fetch('/api/orb/settings')
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('index_selector').value = data.selected_index || 'NIFTY';
-                document.getElementById('trade_mode').value = data.trade_mode || 'PAPER';
-                document.getElementById('order_type').value = data.order_type || 'MARKET';
-                
-                // Load Quantity for specific index
-                const qtyMap = data.qty_map || {};
-                const currentIdx = data.selected_index || 'NIFTY';
-                document.getElementById('trade_qty').value = qtyMap[currentIdx] || 50;
-
-                document.getElementById('min_range').value = data.min_range || 10;
-                document.getElementById('max_range').value = data.max_range || 300;
-                document.getElementById('buffer_points').value = data.buffer_points || 1.0;
-                document.getElementById('target1_ratio').value = data.risk_reward[0] || 1.0;
-                document.getElementById('target2_ratio').value = data.risk_reward[1] || 3.0;
-
-                updateStatusUI(data.status);
-                fetchIndexDetails(); // Initial fetch
-            });
-    }
-
     function saveSettings() {
         const idx = document.getElementById('index_selector').value;
-        const currentQty = parseInt(document.getElementById('trade_qty').value);
+        const currentQty = parseInt(document.getElementById('trade_qty').value) || 0;
         
-        // We need to fetch current config first to preserve other indices' quantities
-        fetch('/api/orb/settings')
-            .then(res => res.json())
-            .then(currentConfig => {
-                const qtyMap = currentConfig.qty_map || {};
-                qtyMap[idx] = currentQty; // Update only current index
+        const payload = {
+            selected_index: idx,
+            trade_mode: document.getElementById('trade_mode').value,
+            order_type: document.getElementById('order_type').value,
+            qty_map: { [idx]: currentQty }, // Backend handles merging
+            buffer_points: parseFloat(document.getElementById('buffer_points').value),
+            risk_reward: [
+                parseFloat(document.getElementById('target1_ratio').value),
+                parseFloat(document.getElementById('target2_ratio').value)
+            ]
+        };
 
-                const payload = {
-                    selected_index: idx,
-                    trade_mode: document.getElementById('trade_mode').value,
-                    order_type: document.getElementById('order_type').value,
-                    qty_map: qtyMap,
-                    min_range: parseInt(document.getElementById('min_range').value),
-                    max_range: parseInt(document.getElementById('max_range').value),
-                    buffer_points: parseFloat(document.getElementById('buffer_points').value),
-                    risk_reward: [
-                        parseFloat(document.getElementById('target1_ratio').value),
-                        parseFloat(document.getElementById('target2_ratio').value)
-                    ]
-                };
-
-                fetch('/api/orb/save', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                })
-                .then(res => res.json())
-                .then(data => alert(data.message));
-            });
+        fetch('/api/orb/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => alert(data.message));
     }
 
     function toggleStrategy(state) {
@@ -256,6 +231,7 @@
         fetch('/api/orb/logs')
             .then(res => res.json())
             .then(data => {
+                if(!data.logs) return;
                 let html = "";
                 data.logs.forEach(log => {
                     let colorClass = "text-light";

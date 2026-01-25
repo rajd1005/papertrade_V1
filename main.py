@@ -34,7 +34,7 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 login_state = "IDLE" 
 login_error_msg = None 
-orb_bot = None
+orb_bot = None  # Global instance for ORB Strategy
 
 def run_auto_login_process():
     global bot_active, login_state, login_error_msg, orb_bot
@@ -57,21 +57,22 @@ def run_auto_login_process():
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
                 
-                # --- NEW: Start WebSocket Ticker ---
+                # --- Start WebSocket Ticker ---
                 zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
-                # -----------------------------------
-
+                
                 smart_trader.fetch_instruments(kite)
                 
                 bot_active = True
                 login_state = "IDLE"
                 gc.collect()
 
-                # --- START ORB STRATEGY ---
+                # --- START ORB STRATEGY (Auto-Init) ---
                 if orb_bot is None:
                     orb_bot = ORBStrategyManager(kite)
-                orb_bot.start()
-                # --------------------------
+                # Auto-start with 1 lot default, user can change via UI
+                if not orb_bot.active:
+                    orb_bot.start(lots=1)
+                # --------------------------------------
                 
                 # [NOTIFICATION] Success
                 telegram_bot.notify_system_event("LOGIN_SUCCESS", "Auto-Login Successful. Session Renewed.")
@@ -111,7 +112,6 @@ def run_auto_login_process():
 def background_monitor():
     global bot_active, login_state
     
-    # [FIXED] Wrapped Startup Notification in App Context
     with app.app_context():
         try:
             telegram_bot.notify_system_event("STARTUP", "Server Deployed & Monitor Started.")
@@ -127,14 +127,13 @@ def background_monitor():
                 # 1. Active Bot Check
                 if bot_active:
                     try:
-                        # [FIX] Skip Token Check if using Mock Broker
+                        # Skip Token Check if using Mock Broker
                         if not hasattr(kite, "mock_instruments"):
                             if not kite.access_token: 
                                 raise Exception("No Access Token Found")
 
                         # Force a simple API call to validate the token 
                         try:
-                            # Mock Broker might not have profile(), so we skip this check for Mock
                             if not hasattr(kite, "mock_instruments"):
                                 kite.profile() 
                         except Exception as e:
@@ -147,17 +146,15 @@ def background_monitor():
                         err = str(e)
                         if "Token is invalid" in err or "Network" in err or "No Access Token" in err or "access_token" in err:
                             print(f"⚠️ Connection Lost: {err}")
-                            
                             if bot_active:
                                 telegram_bot.notify_system_event("OFFLINE", f"Connection Lost: {err}")
-                            
                             bot_active = False 
                         else:
                             print(f"⚠️ Risk Loop Warning: {err}")
 
                 # 2. Reconnection Logic (Only if Bot is NOT active)
                 if not bot_active:
-                    # [NEW] DETECT MOCK BROKER & BYPASS LOGIN
+                    # DETECT MOCK BROKER & BYPASS LOGIN
                     if hasattr(kite, "mock_instruments"):
                         print("⚠️ [MONITOR] Mock Broker Detected. Bypassing Auto-Login. System Online.")
                         bot_active = True
@@ -219,7 +216,6 @@ def api_orb_params():
     active = False
     current_lots = 1
     
-    # If bot is running, get its actual state
     if orb_bot:
         active = orb_bot.active
         current_lots = orb_bot.lots
@@ -271,23 +267,21 @@ def callback():
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
             
-            # --- NEW: Start WebSocket Ticker (Critical Fix) ---
+            # --- Start WebSocket Ticker ---
             zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
-            # --------------------------------------------------
 
             bot_active = True
             smart_trader.fetch_instruments(kite)
             gc.collect()
 
-            # --- START ORB STRATEGY ---
+            # --- START ORB STRATEGY (Auto-Init) ---
             if orb_bot is None:
                 orb_bot = ORBStrategyManager(kite)
-            orb_bot.start()
-            # --------------------------
+            if not orb_bot.active:
+                orb_bot.start(lots=1)
+            # --------------------------------------
             
-            # [NOTIFICATION] Manual Login Success
             telegram_bot.notify_system_event("LOGIN_SUCCESS", "Manual Login (Callback) Successful.")
-            
             flash("✅ System Online")
         except Exception as e:
             flash(f"Login Error: {e}")
@@ -295,38 +289,26 @@ def callback():
 
 @app.route('/api/settings/load')
 def api_settings_load():
-    # Load base settings
     s = settings.load_settings()
-    
-    # --- FIXED: 1st Trade Logic using IST Timezone ---
     try:
         from managers.common import IST
         from datetime import datetime
         
-        # Fetch current date in IST instead of server local time
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
-        
-        # Load Trades & History to count today's trades
         trades = persistence.load_trades()
         history = persistence.load_history()
         
         count = 0
-        # Check Active Trades
         if trades:
             for t in trades:
-                if t.get('entry_time', '').startswith(today_str): 
-                    count += 1
-        
-        # Check History
+                if t.get('entry_time', '').startswith(today_str): count += 1
         if history:
             for t in history:
-                if t.get('entry_time', '').startswith(today_str): 
-                    count += 1
+                if t.get('entry_time', '').startswith(today_str): count += 1
             
         s['is_first_trade'] = (count == 0)
     except Exception as e:
         print(f"Error checking first trade: {e}")
-        # Default to False on error to prevent unwanted mode switching
         s['is_first_trade'] = False
         
     return jsonify(s)
@@ -437,7 +419,6 @@ def api_manual_trade_status():
     result = risk_engine.send_manual_trade_status(mode)
     return jsonify(result)
 
-# --- NEW TELEGRAM TEST ROUTE ---
 @app.route('/api/test_telegram', methods=['POST'])
 def test_telegram():
     token = request.form.get('token')

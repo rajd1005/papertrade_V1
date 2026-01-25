@@ -12,6 +12,7 @@ from managers import zerodha_ticker
 # --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
 from managers.telegram_manager import bot as telegram_bot
+from managers.orb_manager import ORBStrategyManager
 # --------------------------
 import smart_trader
 import settings
@@ -33,9 +34,10 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 login_state = "IDLE" 
 login_error_msg = None 
+orb_bot = None
 
 def run_auto_login_process():
-    global bot_active, login_state, login_error_msg
+    global bot_active, login_state, login_error_msg, orb_bot
     
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
         login_state = "FAILED"
@@ -64,6 +66,12 @@ def run_auto_login_process():
                 bot_active = True
                 login_state = "IDLE"
                 gc.collect()
+
+                # --- START ORB STRATEGY ---
+                if orb_bot is None:
+                    orb_bot = ORBStrategyManager(kite)
+                orb_bot.start()
+                # --------------------------
                 
                 # [NOTIFICATION] Success
                 telegram_bot.notify_system_event("LOGIN_SUCCESS", "Auto-Login Successful. Session Renewed.")
@@ -196,6 +204,22 @@ def secure_login_page():
 def api_status():
     return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
 
+@app.route('/api/orb/toggle', methods=['POST'])
+def api_orb_toggle():
+    global orb_bot
+    action = request.json.get('action') # 'start' or 'stop'
+    if not orb_bot:
+        orb_bot = ORBStrategyManager(kite)
+        
+    if action == 'start':
+        orb_bot.start()
+        return jsonify({"status": "success", "message": "ORB Strategy Started"})
+    elif action == 'stop':
+        orb_bot.stop()
+        return jsonify({"status": "success", "message": "ORB Strategy Stopped"})
+    
+    return jsonify({"active": orb_bot.active})
+
 @app.route('/reset_connection')
 def reset_connection():
     global bot_active, login_state
@@ -210,7 +234,7 @@ def reset_connection():
 
 @app.route('/callback')
 def callback():
-    global bot_active
+    global bot_active, orb_bot
     t = request.args.get("request_token")
     if t:
         try:
@@ -224,6 +248,12 @@ def callback():
             bot_active = True
             smart_trader.fetch_instruments(kite)
             gc.collect()
+
+            # --- START ORB STRATEGY ---
+            if orb_bot is None:
+                orb_bot = ORBStrategyManager(kite)
+            orb_bot.start()
+            # --------------------------
             
             # [NOTIFICATION] Manual Login Success
             telegram_bot.notify_system_event("LOGIN_SUCCESS", "Manual Login (Callback) Successful.")

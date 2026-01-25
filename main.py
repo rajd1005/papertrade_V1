@@ -8,7 +8,6 @@ from flask import Flask, render_template, request, redirect, flash, jsonify, url
 from kiteconnect import KiteConnect
 import config
 from managers import zerodha_ticker
-from managers.orb_strategy import bot as orb_bot
 
 # --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
@@ -715,40 +714,5 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)
     t.start()
 
-@app.route('/strategy/orb')
-def orb_panel():
-    global bot_active, login_state
-    return render_template('orb_panel.html', is_active=bot_active, state=login_state)
-
-@app.route('/api/orb/settings')
-def orb_get_settings():
-    return jsonify({**orb_bot.config, "logs": orb_bot.logs})
-
-@app.route('/api/orb/save', methods=['POST'])
-def orb_save_settings():
-    # Expects: { "index": "NIFTY", "config": { ... } }
-    data = request.json
-    idx = data.get("index")
-    cfg = data.get("config")
-    
-    orb_bot.save_index_config(idx, cfg)
-    return jsonify({"status": "success", "message": f"Saved {idx} configuration."})
-
-@app.route('/api/orb/delete', methods=['POST'])
-def orb_delete_config():
-    idx = request.json.get('index')
-    orb_bot.delete_index_config(idx)
-    return jsonify({"status": "success", "message": f"Deleted {idx}"})
-
-@app.route('/api/orb/toggle', methods=['POST'])
-def orb_toggle():
-    status = request.json.get('status')
-    orb_bot.toggle_status(status)
-    return jsonify({"status": "success", "new_status": status})
-
-@app.route('/api/orb/logs')
-def orb_logs():
-    return jsonify({"logs": orb_bot.logs})
-    
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

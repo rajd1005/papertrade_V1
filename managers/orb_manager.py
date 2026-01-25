@@ -17,27 +17,32 @@ class ORBStrategyManager:
         self.thread = None
         self.lock = threading.Lock()
         
-        # Strategy State
+        # --- Strategy Constants ---
+        self.timeframe = "5minute"
+        self.nifty_spot_token = 256265 # NSE:NIFTY 50
+        self.quantity = 50             # Default Lot Size (1 Lot)
+        
+        # --- Strategy State ---
         self.range_high = 0
         self.range_low = 0
-        self.signal_state = "NONE"  # "WAIT_BUY", "WAIT_SELL", "NONE"
+        
+        # Signal State: "NONE", "WAIT_BUY", "WAIT_SELL"
+        self.signal_state = "NONE" 
         self.trigger_level = 0
-        self.signal_candle_sl_spot = 0 # Store Spot SL level initially
-        self.signal_candle_time = None # Time of the signal candle to fetch Option SL later
+        self.signal_candle_time = None 
+        
+        # Trade Management State
         self.trade_active = False
         self.current_trade_id = None
         
-        # Reversal Logic State
+        # Reversal / Constraints
         self.sl_hit_count = 0
         self.last_trade_side = None # "CE" or "PE"
         self.is_done_for_day = False
+        
+        # Cached Tokens
+        self.nifty_fut_token = None
 
-        # Config
-        self.timeframe = "5minute"
-        self.nifty_spot_token = 256265 # NSE:NIFTY 50
-        self.nifty_fut_token = None    # Will be fetched dynamically
-        self.quantity = 50             # Default Lot Size (1 Lot) - Configurable
-    
     def start(self):
         if not self.active:
             self.active = True
@@ -50,267 +55,321 @@ class ORBStrategyManager:
         print("🛑 [ORB] Strategy Engine Stopped")
 
     def _get_nifty_futures_token(self):
-        """Fetch current month Nifty Futures token for Volume check"""
+        """Finds the current month Nifty Futures token for Volume checks."""
         try:
-            # Simple search or use smart_trader logic
-            today = datetime.datetime.now(IST).date()
-            # Logic to find current expiry futures (Simplified)
+            # We search for "NIFTY" in NFO and filter for FUT
             instruments = self.kite.instruments("NFO")
             df = pd.DataFrame(instruments)
+            
+            # Filter for NIFTY Futures
             df = df[(df['name'] == 'NIFTY') & (df['instrument_type'] == 'FUT')]
+            
+            # Sort by expiry to get the nearest (current month)
+            today = datetime.datetime.now(IST).date()
             df['expiry'] = pd.to_datetime(df['expiry']).dt.date
             df = df[df['expiry'] >= today].sort_values('expiry')
+            
             if not df.empty:
-                return df.iloc[0]['instrument_token']
+                token = int(df.iloc[0]['instrument_token'])
+                print(f"ℹ️ [ORB] Found Nifty Future Token: {token} (Expiry: {df.iloc[0]['expiry']})")
+                return token
         except Exception as e:
             print(f"⚠️ [ORB] Error fetching Futures Token: {e}")
         return None
 
-    def _fetch_candle_data(self, token, interval_str):
-        """Fetch 5-minute candles"""
+    def _fetch_last_n_candles(self, token, interval, n=5):
+        """Fetches the last N candles for logic checks."""
         to_date = datetime.datetime.now(IST)
-        from_date = to_date - datetime.timedelta(days=5) # Buffer
+        from_date = to_date - datetime.timedelta(days=4)
         try:
-            data = self.kite.historical_data(token, from_date, to_date, interval_str)
-            return pd.DataFrame(data)
+            data = self.kite.historical_data(token, from_date, to_date, interval)
+            df = pd.DataFrame(data)
+            if not df.empty:
+                return df.tail(n) # Return only last N
+            return pd.DataFrame()
         except Exception as e:
-            print(f"⚠️ [ORB] History API Error: {e}")
+            # print(f"⚠️ [ORB] History API Error: {e}") 
             return pd.DataFrame()
 
     def _run_loop(self):
-        # 1. Initialization
-        self.nifty_fut_token = self._get_nifty_futures_token()
-        print(f"ℹ️ [ORB] Nifty Futures Token: {self.nifty_fut_token}")
+        # 1. Initialize Futures Token
+        while self.active and self.nifty_fut_token is None:
+            self.nifty_fut_token = self._get_nifty_futures_token()
+            if self.nifty_fut_token is None:
+                time.sleep(10)
+        
+        print("✅ [ORB] Loop Initialized. Waiting for Market Data...")
 
         while self.active:
             try:
                 now = datetime.datetime.now(IST)
                 curr_time = now.time()
 
-                # --- EOD Force Close (15:15) ---
+                # --- 1. EOD Force Close (15:15) ---
                 if curr_time >= datetime.time(15, 15):
                     if not self.is_done_for_day:
                         print("⏰ [ORB] EOD Reached. Stopping Strategy.")
                         self.is_done_for_day = True
-                        # Panic exit handles squaring off active trades
-                        # You might call trade_manager.close_trade_manual here if needed
+                        self.signal_state = "NONE"
+                        # Optional: Trigger panic exit here if required
                     time.sleep(60)
                     continue
 
-                # --- Phase 2: The Setup (Wait for 09:20) ---
+                # --- 2. Phase 2: The Setup (Wait until 09:20 for First Candle) ---
                 if curr_time < datetime.time(9, 20):
                     time.sleep(5)
                     continue
                 
-                # Capture Range (Runs once)
+                # Capture ORB Range (High/Low of 09:15 candle)
                 if self.range_high == 0:
-                    df = self._fetch_candle_data(self.nifty_spot_token, self.timeframe)
+                    df = self._fetch_last_n_candles(self.nifty_spot_token, self.timeframe, n=20)
                     if not df.empty:
-                        # Find 09:15 candle
+                        # Find the 09:15 candle specifically
                         today_str = now.strftime('%Y-%m-%d')
-                        orb_candle = df[df['date'].astype(str).str.contains(f"{today_str} 09:15")]
+                        target_ts = f"{today_str} 09:15:00"
                         
-                        if not orb_candle.empty:
-                            self.range_high = orb_candle.iloc[0]['high']
-                            self.range_low = orb_candle.iloc[0]['low']
-                            print(f"✅ [ORB] Range Set: High {self.range_high} | Low {self.range_low}")
+                        # Convert dataframe date to string to match
+                        orb_row = df[df['date'].astype(str).str.contains(target_ts)]
+                        
+                        if not orb_row.empty:
+                            self.range_high = float(orb_row.iloc[0]['high'])
+                            self.range_low = float(orb_row.iloc[0]['low'])
+                            print(f"✅ [ORB] Range Established: {self.range_high} - {self.range_low}")
                         else:
-                            time.sleep(10) # Wait for candle to form
+                            # Candle not formed yet
+                            time.sleep(5)
                             continue
+                    else:
+                        time.sleep(5)
+                        continue
 
-                # --- Check Active Trade Status (Phase 5 Management) ---
+                # --- 3. Check Active Trade (Phase 5) ---
                 if self.trade_active:
                     self._monitor_active_trade()
-                    time.sleep(1) # Fast poll when trade is active
+                    time.sleep(1)
                     continue
 
-                # --- Phase 6: Reversal Time Filter ---
+                # --- 4. Reversal Time Filter (Phase 6) ---
+                # "Time Check: Is Current Time < 13:00? No: Stop Trading."
+                # Only applies if SL was hit previously.
                 if self.sl_hit_count > 0:
                     if curr_time >= datetime.time(13, 0):
                         if not self.is_done_for_day:
-                            print("🛑 [ORB] SL Hit & Time > 1:00 PM. No Reversals.")
+                            print("🛑 [ORB] SL Hit & Time > 1:00 PM. No Reversals allowed.")
                             self.is_done_for_day = True
                         continue
 
-                # --- Phase 3: Signal Generation (Every Candle Close) ---
-                # We check the latest completed 5-min candle
+                # --- 5. Phase 3: Signal Generation (Every Candle Close) ---
+                # We run this check often, but logic relies on COMPLETED candles.
                 self._check_signals()
 
-                # --- Phase 4: Entry Trigger (Real-Time) ---
+                # --- 6. Phase 4: Entry Trigger (Real-Time) ---
                 if self.signal_state != "NONE":
                     self._check_trigger()
 
-                time.sleep(1) # 1 Second heartbeat
+                time.sleep(1) 
 
             except Exception as e:
                 print(f"❌ [ORB] Loop Error: {e}")
                 time.sleep(5)
 
     def _check_signals(self):
-        """Checks for Breakout + Volume confirmation on completed candles"""
-        spot_df = self._fetch_candle_data(self.nifty_spot_token, self.timeframe)
-        fut_df = self._fetch_candle_data(self.nifty_fut_token, self.timeframe)
+        """
+        Runs on every candle close (effectively).
+        Checks for Breakout + Volume Confirmation.
+        Implements 'Switch Rule' and 'Reversal Constraint'.
+        """
+        # Fetch last few candles for Spot and Futures
+        spot_df = self._fetch_last_n_candles(self.nifty_spot_token, self.timeframe, n=5)
+        fut_df = self._fetch_last_n_candles(self.nifty_fut_token, self.timeframe, n=10)
         
         if spot_df.empty or fut_df.empty: return
-
-        # Get last completed candle (ignoring current forming one)
-        last_spot = spot_df.iloc[-2] 
-        last_fut = fut_df.iloc[-2]
-        
-        # Volume Check (Avg of last 3 completed candles)
-        # Note: iloc[-2] is the signal candle. We need avg of [-2, -3, -4]
         if len(fut_df) < 5: return
-        vol_avg = fut_df['volume'].iloc[-4:-1].mean()
-        vol_ok = last_fut['volume'] > vol_avg
 
-        # Condition A: Call Signal (Close > Range High)
-        if last_spot['close'] > self.range_high:
-            # Reversal Constraint: If we took a CE trade and hit SL, ignore this
+        # The "Signal Candle" is the last COMPLETED candle (iloc[-2])
+        # The "Current Candle" is forming (iloc[-1]) - we ignore forming for signal generation
+        
+        sig_candle_spot = spot_df.iloc[-2]
+        sig_candle_fut = fut_df.iloc[-2]
+        
+        # --- Volume Check Logic ---
+        # "Is Volume(Futures) > Average(Volume, 3)?"
+        # We need average of the 3 candles BEFORE the signal candle.
+        # Indices: Signal is -2. Previous 3 are -3, -4, -5.
+        vol_avg = fut_df['volume'].iloc[-5:-2].mean()
+        curr_vol = sig_candle_fut['volume']
+        volume_ok = curr_vol > vol_avg
+
+        # Check Timestamps to avoid reprocessing the same candle
+        # We store 'last_processed_candle' logic implicitly by checking state changes 
+        # or we can just evaluate state idempotently.
+        
+        close_price = sig_candle_spot['close']
+        candle_high = sig_candle_spot['high']
+        candle_low = sig_candle_spot['low']
+        candle_time = sig_candle_spot['date']
+
+        # --- CONDITION A: Potential Call Signal ---
+        if close_price > self.range_high:
+            # Reversal Constraint: If SL hit on CE previously, ignore CE signals
             if self.last_trade_side == "CE" and self.sl_hit_count > 0:
                 return 
 
-            if vol_ok:
-                # The "Switch" Rule: Overwrite any pending SELL signal
+            if volume_ok:
+                # "Switch" Rule: If we were waiting for SELL, overwrite it
                 if self.signal_state != "WAIT_BUY":
-                    print(f"🔔 [ORB] Call Signal Generated at {last_spot['date']}")
+                    print(f"🔔 [ORB] Call Signal (Volume OK). Waiting for break of {candle_high}")
                     self.signal_state = "WAIT_BUY"
-                    self.trigger_level = last_spot['high']
-                    self.signal_candle_sl_spot = last_spot['low'] # Store spot SL for reference
-                    self.signal_candle_time = last_spot['date']
+                    self.trigger_level = candle_high
+                    self.signal_candle_time = candle_time
+            else:
+                # Volume failed - if we were in WAIT_SELL and price crossed High, 
+                # strictly speaking, the SELL setup is invalidated by the Switch rule
+                if self.signal_state == "WAIT_SELL":
+                    print("⚠️ [ORB] Switch Rule: Sell Setup Invalidated (High Broken). Resetting.")
+                    self.signal_state = "NONE"
 
-        # Condition B: Put Signal (Close < Range Low)
-        elif last_spot['close'] < self.range_low:
-            # Reversal Constraint: If we took a PE trade and hit SL, ignore this
+        # --- CONDITION B: Potential Put Signal ---
+        elif close_price < self.range_low:
+            # Reversal Constraint: If SL hit on PE previously, ignore PE signals
             if self.last_trade_side == "PE" and self.sl_hit_count > 0:
                 return
 
-            if vol_ok:
-                # The "Switch" Rule: Overwrite any pending BUY signal
+            if volume_ok:
+                # "Switch" Rule: If we were waiting for BUY, overwrite it
                 if self.signal_state != "WAIT_SELL":
-                    print(f"🔔 [ORB] Put Signal Generated at {last_spot['date']}")
+                    print(f"🔔 [ORB] Put Signal (Volume OK). Waiting for break of {candle_low}")
                     self.signal_state = "WAIT_SELL"
-                    self.trigger_level = last_spot['low']
-                    self.signal_candle_sl_spot = last_spot['high'] # For Put, SL is the High of the candle
-                    self.signal_candle_time = last_spot['date']
-        
-        # "Switch" Rule Logic for abandoning signals
-        # If waiting for BUY, but a candle closes below Range Low -> Switch or Abandon
-        if self.signal_state == "WAIT_BUY" and last_spot['close'] < self.range_low:
-             print("⚠️ [ORB] Switch Rule: Buy Setup Invalidated. Waiting for new signal.")
-             self.signal_state = "NONE"
-        
-        if self.signal_state == "WAIT_SELL" and last_spot['close'] > self.range_high:
-             print("⚠️ [ORB] Switch Rule: Sell Setup Invalidated. Waiting for new signal.")
-             self.signal_state = "NONE"
+                    self.trigger_level = candle_low
+                    self.signal_candle_time = candle_time
+            else:
+                if self.signal_state == "WAIT_BUY":
+                    print("⚠️ [ORB] Switch Rule: Buy Setup Invalidated (Low Broken). Resetting.")
+                    self.signal_state = "NONE"
 
     def _check_trigger(self):
-        """Real-time LTP check against Trigger Level"""
+        """
+        Checks real-time LTP against the Trigger Level (High/Low of Signal Candle).
+        """
+        # Get Real-Time Spot Price
         ltp = smart_trader.get_ltp(self.kite, "NSE:NIFTY 50")
         if ltp == 0: return
 
         triggered = False
         trade_type = ""
         
-        if self.signal_state == "WAIT_BUY" and ltp > self.trigger_level:
-            triggered = True
-            trade_type = "CE"
-        elif self.signal_state == "WAIT_SELL" and ltp < self.trigger_level:
-            triggered = True
-            trade_type = "PE"
+        # Scenario 1: WAIT_BUY
+        if self.signal_state == "WAIT_BUY":
+            # IF Current_Price(Spot) > Trigger_Level
+            if ltp > self.trigger_level:
+                triggered = True
+                trade_type = "CE"
+
+        # Scenario 2: WAIT_SELL
+        elif self.signal_state == "WAIT_SELL":
+            # IF Current_Price(Spot) < Trigger_Level
+            if ltp < self.trigger_level:
+                triggered = True
+                trade_type = "PE"
 
         if triggered:
-            print(f"⚡ [ORB] Trigger Fired! Type: {trade_type} @ Spot {ltp}")
+            print(f"⚡ [ORB] Trigger Fired! Type: {trade_type} | Spot LTP: {ltp} | Trigger: {self.trigger_level}")
             self._execute_entry(ltp, trade_type)
 
     def _execute_entry(self, spot_ltp, trade_type):
-        # 1. Find ATM Strike
+        """
+        Executes the trade:
+        1. Selects ATM Strike
+        2. Calculates SL based on OPTION CHART of the Signal Candle
+        3. Places Order via TradeManager
+        """
+        
+        # 1. Identify ATM Strike
         strike_diff = 50
         atm_strike = round(spot_ltp / strike_diff) * strike_diff
         
-        # 2. Get Expiry (Current Weekly)
-        # Using smart_trader utils to find symbol
-        # format: NIFTY 24 1 25 21500 CE
-        # We need a robust way to get the exact symbol. 
-        # Using smart_trader.search_symbols or chain logic
-        
-        # Hack: Get chain for NIFTY, pick expiry
+        # 2. Find Symbol (Current Week)
         details = smart_trader.get_symbol_details(self.kite, "NIFTY")
         if not details or not details.get('opt_expiries'):
-            print("❌ [ORB] Could not fetch Expiry dates")
+            print("❌ [ORB] Expiry Fetch Failed")
             return
-            
-        current_expiry = details['opt_expiries'][0] # Nearest expiry
         
+        current_expiry = details['opt_expiries'][0] # Nearest Expiry
         symbol_name = smart_trader.get_exact_symbol("NIFTY", current_expiry, atm_strike, trade_type)
+        
         if not symbol_name:
-            print("❌ [ORB] Could not construct Option Symbol")
+            print(f"❌ [ORB] Symbol Construction Failed for {atm_strike} {trade_type}")
             return
 
-        print(f"🚀 [ORB] Entering Trade: {symbol_name}")
-
-        # 3. Calculate Option SL
-        # Requirement: "Low of Signal Candle (mapped to Option Chart)"
-        # We fetch the option history for the specific signal candle time
-        opt_token = smart_trader.get_instrument_token(symbol_name, "NFO")
+        # 3. Calculate Option Stop Loss
+        # "Set Signal_Candle_SL = Low of this Current Candle (mapped to Option Chart)"
+        # Note: Even for Puts, since we are BUYING, the SL is the Low of the Option candle.
         
         sl_price = 0
-        entry_price_est = smart_trader.get_ltp(self.kite, symbol_name) # Approximate
+        entry_est = smart_trader.get_ltp(self.kite, symbol_name)
+        
+        # Fetch Option History for the Signal Candle Time
+        opt_token = smart_trader.get_instrument_token(symbol_name, "NFO")
         
         if opt_token and self.signal_candle_time:
-            # Fetch the candle matching the signal time
-            opt_hist = self.kite.historical_data(opt_token, self.signal_candle_time, self.signal_candle_time + datetime.timedelta(minutes=5), self.timeframe)
-            if opt_hist:
-                # If Call, SL is Low. If Put, SL is Low (Charts are inverted logic in Strategy, but price is absolute)
-                # "remember Put chart is inverted, so logic applies to Option price low"
-                # Standard Logic: For Long Option (Buy CE or Buy PE), SL is the Low of the candle.
-                sl_price = opt_hist[0]['low']
-                # Safety: If SL is too close or invalid
-                if sl_price >= entry_price_est:
-                    sl_price = entry_price_est - 20 # Fallback 20 pts
-            else:
-                sl_price = entry_price_est - 20 # Fallback
-        else:
-            sl_price = entry_price_est - 20 # Fallback
+            # We fetch a small window around the signal time
+            from_t = self.signal_candle_time
+            to_t = from_t + datetime.timedelta(minutes=10)
+            
+            try:
+                # Fetch 5min data
+                ohlc = self.kite.historical_data(opt_token, from_t, to_t, self.timeframe)
+                if ohlc:
+                    # The first record should correspond to the signal candle time
+                    ref_candle = ohlc[0]
+                    sl_price = float(ref_candle['low']) 
+                    print(f"📉 [ORB] Option SL Found: {sl_price} (Low of candle at {ref_candle['date']})")
+                else:
+                    print("⚠️ [ORB] Option History Empty. Using default SL.")
+            except Exception as e:
+                print(f"⚠️ [ORB] SL Fetch Error: {e}")
 
-        # Calculate Targets based on Entry and SL
-        risk = entry_price_est - sl_price
-        if risk <= 0: risk = 20 # Safety
+        # Safety Fallback if SL is invalid or missing
+        if sl_price == 0 or sl_price >= entry_est:
+            sl_price = entry_est * 0.90 # 10% SL fallback
+            print(f"⚠️ [ORB] Using Fallback SL: {sl_price}")
+
+        # 4. Calculate Targets
+        risk_points = entry_est - sl_price
+        if risk_points < 5: risk_points = 5 # Minimum risk buffer
         
-        target_1 = entry_price_est + risk       # 1:1
-        target_2 = entry_price_est + (3 * risk) # 1:3
+        target_1 = entry_est + risk_points       # 1:1
+        target_2 = entry_est + (3 * risk_points) # 1:3
         
-        # 4. Create Trade Payload for TradeManager
-        # We configure Target 1 to exit 50% and trail, Target 2 to exit all
-        # Qty is self.quantity (e.g. 50). 50% is 25.
+        print(f"🎯 [ORB] Plan: Entry~{entry_est} | SL:{sl_price} | T1:{target_1} | T2:{target_2}")
+
+        # 5. Configure Trade Manager
+        # Logic: 
+        # T1 (1:1): Exit 50%, Move SL to Cost.
+        # T2 (1:3): Exit Remaining.
         
         qty = self.quantity
         half_qty = int(qty / 2)
-        rem_qty = qty - half_qty
-        
-        payload_sl_points = entry_price_est - sl_price
-        
-        # Call Trade Manager
-        # Custom targets = [T1, T2, 0]
-        # Controls:
-        # T1: Active, Lots=half_qty, Trail_to_entry=True
-        # T2: Active, Lots=1000(Full), Trail_to_entry=False
         
         t_controls = [
-            {'enabled': True, 'lots': half_qty, 'trail_to_entry': True},
-            {'enabled': True, 'lots': 1000, 'trail_to_entry': False}, # 1000 signifies FULL
+            {'enabled': True, 'lots': half_qty, 'trail_to_entry': True}, # Target 1
+            {'enabled': True, 'lots': 1000, 'trail_to_entry': False},    # Target 2 (1000 = Remainder)
             {'enabled': False, 'lots': 0, 'trail_to_entry': False}
         ]
         
+        # Convert absolute prices to relative points for the API if needed, 
+        # but trade_manager.create_trade_direct supports custom_targets (absolute).
+        
         res = trade_manager.create_trade_direct(
             self.kite,
-            mode="LIVE", # Or "PAPER" based on settings - Hardcoded LIVE per requirement "Trading Instrument"
+            mode="LIVE", # Mandated by requirements
             specific_symbol=symbol_name,
             quantity=qty,
-            sl_points=payload_sl_points,
+            sl_points=(entry_est - sl_price), # Initial SL points
             custom_targets=[target_1, target_2, 0],
             order_type="MARKET",
             target_controls=t_controls,
-            trailing_sl=0, # We rely on Target-based trailing
+            trailing_sl=0, 
             sl_to_entry=0,
             exit_multiplier=1,
             target_channels=['main']
@@ -320,34 +379,33 @@ class ORBStrategyManager:
             self.trade_active = True
             self.current_trade_id = res['trade']['id']
             self.last_trade_side = trade_type
-            self.signal_state = "NONE" # Reset
-            print(f"✅ [ORB] Trade Placed ID: {self.current_trade_id}")
+            self.signal_state = "NONE" # Reset Signal
+            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id}")
         else:
-            print(f"❌ [ORB] Trade Placement Failed: {res['message']}")
+            print(f"❌ [ORB] Trade Failed: {res['message']}")
             self.signal_state = "NONE"
 
     def _monitor_active_trade(self):
-        """Checks if trade hit SL or Targets to update internal state"""
-        # We read from persistence (Memory Cache)
+        """
+        Monitors the active trade to update internal counters (SL hits).
+        """
         trades = persistence.load_trades()
-        # Find our trade
-        my_trade = next((t for t in trades if t['id'] == self.current_trade_id), None)
+        trade = next((t for t in trades if t['id'] == self.current_trade_id), None)
         
-        if not my_trade:
-            # Maybe moved to history?
-            hist = persistence.load_history()
-            my_trade = next((t for t in hist if t['id'] == self.current_trade_id), None)
-        
-        if my_trade:
-            status = my_trade.get('status', 'OPEN')
+        # If not in active trades, check history
+        if not trade:
+            history = persistence.load_history()
+            trade = next((t for t in history if t['id'] == self.current_trade_id), None)
             
-            # Check if Closed
+        if trade:
+            status = trade.get('status')
+            
+            # Check if trade is finished
             if status in ['SL_HIT', 'TARGET_HIT', 'MANUAL_EXIT', 'TIME_EXIT', 'PANIC_EXIT']:
-                print(f"ℹ️ [ORB] Trade {self.current_trade_id} Closed. Status: {status}")
+                print(f"ℹ️ [ORB] Trade {self.current_trade_id} Finished with Status: {status}")
                 self.trade_active = False
                 self.current_trade_id = None
                 
-                # Update Counters for Reversal Logic
                 if status == 'SL_HIT':
                     self.sl_hit_count += 1
                     print(f"⚠️ [ORB] SL Hit Count: {self.sl_hit_count}")

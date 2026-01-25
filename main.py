@@ -9,11 +9,10 @@ from kiteconnect import KiteConnect
 import config
 from managers import zerodha_ticker
 
-# --- REFACTORED IMPORTS ---
+# --- IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
 from managers.telegram_manager import bot as telegram_bot
 from managers.orb_manager import ORBStrategyManager
-# --------------------------
 import smart_trader
 import settings
 from database import db, AppSetting
@@ -69,9 +68,9 @@ def run_auto_login_process():
                 # --- START ORB STRATEGY (Auto-Init) ---
                 if orb_bot is None:
                     orb_bot = ORBStrategyManager(kite)
-                # Auto-start with 1 lot default, user can change via UI
+                # Auto-start with default settings (Paper, 2 Lots) so it's ready
                 if not orb_bot.active:
-                    orb_bot.start(lots=1)
+                    orb_bot.start(lots=2, mode="PAPER")
                 # --------------------------------------
                 
                 # [NOTIFICATION] Success
@@ -201,11 +200,11 @@ def secure_login_page():
 def api_status():
     return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
 
-# --- ORB STRATEGY ROUTES (NEW) ---
+# --- ORB STRATEGY ROUTES (UPDATED) ---
 
 @app.route('/api/orb/params')
 def api_orb_params():
-    """Provides status and current lot size from server"""
+    """Provides status, current lot size, lots, and mode from server"""
     ls = 50 
     try:
         # Fetch fresh lot size
@@ -214,37 +213,41 @@ def api_orb_params():
     except: pass
     
     active = False
-    current_lots = 1
+    current_lots = 2
+    current_mode = "PAPER"
     
     if orb_bot:
         active = orb_bot.active
         current_lots = orb_bot.lots
+        current_mode = orb_bot.mode
     
     return jsonify({
         "active": active,
         "lot_size": ls,
-        "current_lots": current_lots
+        "current_lots": current_lots,
+        "current_mode": current_mode
     })
 
 @app.route('/api/orb/toggle', methods=['POST'])
 def api_orb_toggle():
     global orb_bot
     action = request.json.get('action') # 'start' or 'stop'
-    lots = int(request.json.get('lots', 1))
+    lots = int(request.json.get('lots', 2))
+    mode = request.json.get('mode', 'PAPER')
     
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
         
     if action == 'start':
-        orb_bot.start(lots=lots)
-        return jsonify({"status": "success", "message": f"✅ ORB Started with {lots} Lots"})
+        orb_bot.start(lots=lots, mode=mode)
+        return jsonify({"status": "success", "message": f"✅ ORB Started: {mode} | {lots} Lots"})
     elif action == 'stop':
         orb_bot.stop()
         return jsonify({"status": "success", "message": "🛑 ORB Stopped"})
     
     return jsonify({"active": orb_bot.active})
 
-# ---------------------------------
+# -------------------------------------
 
 @app.route('/reset_connection')
 def reset_connection():
@@ -278,7 +281,7 @@ def callback():
             if orb_bot is None:
                 orb_bot = ORBStrategyManager(kite)
             if not orb_bot.active:
-                orb_bot.start(lots=1)
+                orb_bot.start(lots=2, mode="PAPER")
             # --------------------------------------
             
             telegram_bot.notify_system_event("LOGIN_SUCCESS", "Manual Login (Callback) Successful.")

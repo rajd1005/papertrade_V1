@@ -17,11 +17,9 @@ STATE_FILE = "orb_state.json"
 DEFAULT_CONFIG = {
     "status": "DISABLED",
     "selected_index": "NIFTY",
-    "trade_mode": "PAPER",          # NEW: PAPER or LIVE
-    "order_type": "MARKET",         # NEW: MARKET or SL-M
+    "trade_mode": "PAPER",
+    "order_type": "MARKET",
     "qty_map": {"NIFTY": 50, "BANKNIFTY": 15, "FINNIFTY": 40},
-    "min_range": 10,
-    "max_range": 300,
     "buffer_points": 1.0,
     "risk_reward": [1.0, 3.0]
 }
@@ -57,6 +55,11 @@ class OrbSniperBot:
 
     def update_config(self, new_config):
         with LOCK:
+            # Deep update for qty_map to prevent overwriting other indices
+            if 'qty_map' in new_config and 'qty_map' in self.config:
+                self.config['qty_map'].update(new_config['qty_map'])
+                del new_config['qty_map'] # Remove to avoid shallow overwrite
+            
             self.config.update(new_config)
             self._save_json(CONFIG_FILE, self.config)
             self.log(f"Config Updated. Status: {self.config['status']} | Mode: {self.config.get('trade_mode')}")
@@ -96,24 +99,19 @@ class OrbSniperBot:
             if now.time() >= dtime(9, 20, 5):
                 self.log(f"{key}: Fetching First Candle...")
                 token = smart_trader.get_instrument_token(spot_sym, "NSE")
-                from_t = now.replace(hour=9, minute=15, second=0)
-                to_t = now.replace(hour=9, minute=20, second=0)
-                data = kite.historical_data(token, from_t, to_t, "5minute")
+                # Precise 5-min candle fetch
+                from_t = now.replace(hour=9, minute=15, second=0, microsecond=0)
+                to_t = now.replace(hour=9, minute=20, second=0, microsecond=0)
                 
+                data = kite.historical_data(token, from_t, to_t, "5minute")
                 if data:
                     c = data[0]
                     r_high = c['high']
                     r_low = c['low']
-                    size = r_high - r_low
-                    self.log(f"{key}: Range {r_high}-{r_low} ({size}pts)")
-                    
-                    if size > self.config['max_range'] or size < self.config['min_range']:
-                        state["status"] = "STOPPED"
-                        self.log(f"{key}: ⛔ Filter Rejection (Size: {size})")
-                    else:
-                        state["range_high"] = r_high
-                        state["range_low"] = r_low
-                        state["status"] = "SCANNING"
+                    state["range_high"] = r_high
+                    state["range_low"] = r_low
+                    state["status"] = "SCANNING"
+                    self.log(f"{key}: Range Marked {r_high}-{r_low}")
                     self._save_json(STATE_FILE, self.state)
 
         # PHASE 2: SCAN
@@ -161,7 +159,7 @@ class OrbSniperBot:
         try:
             qty = self.config['qty_map'].get(key, 50)
             order_type = self.config.get("order_type", "MARKET")
-            trade_mode = self.config.get("trade_mode", "PAPER") # USES SELECTED MODE
+            trade_mode = self.config.get("trade_mode", "PAPER")
             meta = INDEX_MAP[key]
             
             strike = round(spot_ltp / meta['strike_diff']) * meta['strike_diff']
@@ -173,10 +171,10 @@ class OrbSniperBot:
             
             trade_manager.create_trade_direct(
                 kite=kite,
-                mode=trade_mode,  # Passes PAPER or LIVE correctly
+                mode=trade_mode,
                 specific_symbol=symbol,
                 quantity=qty,
-                sl_points=30,
+                sl_points=30, # Default SL
                 custom_targets=[], 
                 order_type=order_type,
                 target_controls=[],

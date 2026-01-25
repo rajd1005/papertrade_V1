@@ -714,7 +714,7 @@ def place_trade():
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)
     t.start()
-# --- ORB STRATEGY ROUTES ---
+
 @app.route('/strategy/orb')
 def orb_panel():
     global bot_active, login_state
@@ -726,19 +726,24 @@ def orb_get_settings():
 
 @app.route('/api/orb/save', methods=['POST'])
 def orb_save_settings():
-    orb_bot.update_config(request.json)
-    return jsonify({"status": "success", "message": "Settings Saved"})
+    # Expects: { "index": "NIFTY", "config": { ... } }
+    data = request.json
+    idx = data.get("index")
+    cfg = data.get("config")
+    
+    orb_bot.save_index_config(idx, cfg)
+    return jsonify({"status": "success", "message": f"Saved {idx} configuration."})
 
 @app.route('/api/orb/delete', methods=['POST'])
 def orb_delete_config():
     idx = request.json.get('index')
     orb_bot.delete_index_config(idx)
-    return jsonify({"status": "success", "message": f"Deleted Config for {idx}"})
+    return jsonify({"status": "success", "message": f"Deleted {idx}"})
 
 @app.route('/api/orb/toggle', methods=['POST'])
 def orb_toggle():
     status = request.json.get('status')
-    orb_bot.update_config({"status": status})
+    orb_bot.toggle_status(status)
     return jsonify({"status": "success", "new_status": status})
 
 @app.route('/api/orb/logs')

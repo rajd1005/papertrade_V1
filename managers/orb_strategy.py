@@ -14,9 +14,10 @@ LOCK = threading.Lock()
 CONFIG_FILE = "orb_config.json"
 STATE_FILE = "orb_state.json"
 
+# New Structure Default
 DEFAULT_CONFIG = {
     "status": "DISABLED",
-    "strategies": {} # Stores per-index config: {"NIFTY": {qty, mode...}, "BANKNIFTY": {...}}
+    "strategies": {} 
 }
 
 INDEX_MAP = {
@@ -29,6 +30,7 @@ INDEX_MAP = {
 class OrbSniperBot:
     def __init__(self):
         self.config = self._load_json(CONFIG_FILE, DEFAULT_CONFIG)
+        self._ensure_config_structure() # Fix old config files
         self.state = self._load_json(STATE_FILE, {})
         self.logs = []
         self.last_candle_check = {}
@@ -42,6 +44,40 @@ class OrbSniperBot:
 
     def _save_json(self, filename, data):
         with open(filename, 'w') as f: json.dump(data, f, indent=4)
+
+    def _ensure_config_structure(self):
+        """Migrates old config format to new Multi-Strategy format."""
+        with LOCK:
+            changed = False
+            # 1. Ensure 'strategies' key exists
+            if "strategies" not in self.config:
+                self.config["strategies"] = {}
+                changed = True
+            
+            # 2. Migration: If old 'qty_map' exists, move it to strategies
+            if "qty_map" in self.config:
+                old_map = self.config.pop("qty_map")
+                # Try to preserve old settings if possible
+                for idx, qty in old_map.items():
+                    if qty > 0 and idx not in self.config["strategies"]:
+                        self.config["strategies"][idx] = {
+                            "qty": qty,
+                            "trade_mode": self.config.get("trade_mode", "PAPER"),
+                            "order_type": self.config.get("order_type", "MARKET"),
+                            "buffer_points": self.config.get("buffer_points", 1.0),
+                            "risk_reward": self.config.get("risk_reward", [1.0, 3.0])
+                        }
+                changed = True
+            
+            # Clean up old root keys
+            for k in ["trade_mode", "order_type", "buffer_points", "risk_reward", "selected_index"]:
+                if k in self.config:
+                    del self.config[k]
+                    changed = True
+
+            if changed:
+                self._save_json(CONFIG_FILE, self.config)
+                print("🔄 ORB Strategy: Config Migrated to New Format.")
 
     def log(self, msg):
         timestamp = datetime.now(IST).strftime("%H:%M:%S")
@@ -58,7 +94,7 @@ class OrbSniperBot:
             # Save/Overwrite settings for this index
             self.config["strategies"][index] = settings
             self._save_json(CONFIG_FILE, self.config)
-            self.log(f"💾 Saved Config for {index} ({settings['trade_mode']})")
+            self.log(f"💾 Saved Config for {index} (Qty: {settings['qty']})")
 
     def delete_index_config(self, index):
         """Deletes configuration for a specific index."""
@@ -173,7 +209,6 @@ class OrbSniperBot:
 
     def _execute_trade(self, kite, key, side, spot_ltp, settings):
         try:
-            # Use Settings Passed explicitly for this index
             qty = int(settings.get('qty', 0))
             mode = settings.get('trade_mode', 'PAPER')
             order_type = settings.get('order_type', 'MARKET')

@@ -19,15 +19,17 @@ DEFAULT_CONFIG = {
     "selected_index": "NIFTY",
     "trade_mode": "PAPER",
     "order_type": "MARKET",
-    "qty_map": {"NIFTY": 50, "BANKNIFTY": 15, "FINNIFTY": 40},
+    "qty_map": {"NIFTY": 50, "BANKNIFTY": 15, "FINNIFTY": 40, "SENSEX": 10},
     "buffer_points": 1.0,
     "risk_reward": [1.0, 3.0]
 }
 
+# Added SENSEX Mapping
 INDEX_MAP = {
     "NIFTY": {"spot": "NIFTY 50", "fut_fmt": "NIFTY", "strike_diff": 50},
     "BANKNIFTY": {"spot": "NIFTY BANK", "fut_fmt": "BANKNIFTY", "strike_diff": 100},
-    "FINNIFTY": {"spot": "NIFTY FIN SERVICE", "fut_fmt": "FINNIFTY", "strike_diff": 50}
+    "FINNIFTY": {"spot": "NIFTY FIN SERVICE", "fut_fmt": "FINNIFTY", "strike_diff": 50},
+    "SENSEX": {"spot": "BSE:SENSEX", "fut_fmt": "SENSEX", "strike_diff": 100}
 }
 
 class OrbSniperBot:
@@ -55,12 +57,16 @@ class OrbSniperBot:
 
     def update_config(self, new_config):
         with LOCK:
-            # Deep update for qty_map to prevent overwriting other indices
+            # 1. Update Quantity Map (Merge, don't overwrite)
             if 'qty_map' in new_config and 'qty_map' in self.config:
                 self.config['qty_map'].update(new_config['qty_map'])
-                del new_config['qty_map'] # Remove to avoid shallow overwrite
+                # Remove from new_config so it doesn't get overwritten by basic update
+                del new_config['qty_map']
             
+            # 2. Update Rest of Config
             self.config.update(new_config)
+            
+            # 3. Save to Disk
             self._save_json(CONFIG_FILE, self.config)
             self.log(f"Config Updated. Status: {self.config['status']} | Mode: {self.config.get('trade_mode')}")
 
@@ -92,13 +98,15 @@ class OrbSniperBot:
         self._init_symbol_state(key)
         state = self.state[key]
         meta = INDEX_MAP.get(key)
+        if not meta: return
         spot_sym = meta['spot']
 
         # PHASE 1: MARK RANGE (09:15-09:20)
         if state["status"] == "WAITING_RANGE":
             if now.time() >= dtime(9, 20, 5):
                 self.log(f"{key}: Fetching First Candle...")
-                token = smart_trader.get_instrument_token(spot_sym, "NSE")
+                token = smart_trader.get_instrument_token(spot_sym, "NSE" if "NIFTY" in key else "BSE")
+                
                 # Precise 5-min candle fetch
                 from_t = now.replace(hour=9, minute=15, second=0, microsecond=0)
                 to_t = now.replace(hour=9, minute=20, second=0, microsecond=0)
@@ -120,7 +128,7 @@ class OrbSniperBot:
             if (now.minute % 5 == 0) and (5 <= now.second <= 20) and self.last_candle_check.get(key) != window:
                 self.last_candle_check[key] = window
                 
-                token = smart_trader.get_instrument_token(spot_sym, "NSE")
+                token = smart_trader.get_instrument_token(spot_sym, "NSE" if "NIFTY" in key else "BSE")
                 data = smart_trader.fetch_historical_data(kite, token, now - __import__('datetime').timedelta(minutes=15), now, "5minute")
                 
                 if data:
@@ -174,7 +182,7 @@ class OrbSniperBot:
                 mode=trade_mode,
                 specific_symbol=symbol,
                 quantity=qty,
-                sl_points=30, # Default SL
+                sl_points=30, # Default SL, user can edit in trade tab
                 custom_targets=[], 
                 order_type=order_type,
                 target_controls=[],

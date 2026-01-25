@@ -29,7 +29,6 @@
     
     {% if not is_active %}
     <div class="custom-card p-5 text-center mt-5">
-        
         {% if state == "WORKING" %}
             <div class="py-4">
                 <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
@@ -38,69 +37,49 @@
                 <h3 class="mt-3">Connecting to Zerodha...</h3>
                 <p class="text-muted">Bypassing security layers. Please wait.</p>
             </div>
-            <script>
-                // Refresh every 3 seconds to check progress
-                setTimeout(function(){ location.reload(); }, 3000);
-            </script>
-
+            <script>setTimeout(function(){ location.reload(); }, 3000);</script>
         {% else %}
             <h2>🔌 System Offline</h2>
-            
             {% if error %}
                 <div class="alert alert-danger mt-3 text-start">
-                    <strong><i class="fas fa-exclamation-circle"></i> Login Failed:</strong><br>
-                    {{ error }}
+                    <strong><i class="fas fa-exclamation-circle"></i> Login Failed:</strong><br>{{ error }}
                 </div>
             {% endif %}
-
             <div class="mt-4">
-                <div class="alert alert-secondary d-inline-block px-4 py-2">
-                    <i class="fas fa-robot"></i> Background Monitor is active. Retrying...
-                </div>
-                
-                <div class="mt-3">
-                     <p class="text-muted small">If auto-login fails repeatedly, use manual login:</p>
-                     <a href="{{ login_url }}" class="btn btn-primary fw-bold">
-                        <i class="fas fa-key"></i> Manual Login (Web)
-                    </a>
-                </div>
+                <a href="{{ login_url }}" class="btn btn-primary fw-bold"><i class="fas fa-key"></i> Manual Login (Web)</a>
             </div>
         {% endif %}
-
     </div>
+    
     {% else %}
     
     <div class="ticker-bar rounded mb-3 shadow-sm d-flex justify-content-between align-items-center flex-nowrap p-2">
         <div class="d-flex align-items-center flex-nowrap gap-3">
-            <span class="badge bg-success shadow-sm" id="status-badge">
-                <i class="fas fa-wifi"></i> Connected
-            </span>
-            
+            <span class="badge bg-success shadow-sm" id="status-badge"><i class="fas fa-wifi"></i> Connected</span>
             <span class="ticker-item">NIFTY: <span id="n_lp" class="text-warning">...</span></span>
             <span class="ticker-item">BANKNIFTY: <span id="b_lp" class="text-warning">...</span></span>
-            <span class="ticker-item">SENSEX: <span id="s_lp" class="text-warning">...</span></span>
             <span class="ticker-item ms-2">TIME: <span id="live_clock" class="text-light">--:-- --</span></span>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <a href="/strategy/orb" class="btn btn-warning fw-bold text-dark" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px; text-decoration: none;">
-                <i class="fas fa-crosshairs"></i> Sniper Config
-            </a>
+            <a href="/" class="btn btn-outline-light btn-sm fw-bold text-decoration-none">🏠 Dashboard</a>
+            <a href="/strategy/orb" class="btn btn-outline-warning btn-sm fw-bold text-decoration-none"><i class="fas fa-crosshairs"></i> Sniper Config</a>
             
-            <button class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;" data-bs-toggle="modal" data-bs-target="#importModal">📥 Import</button>
-            <button class="btn btn-danger fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 5px rgba(220,53,69,0.5);" onclick="panicExit()">⚠️ EXIT ALL</button>
-            <button class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;" data-bs-toggle="modal" data-bs-target="#settingsModal">⚙️ Settings</button>
+            <button class="btn btn-danger fw-bold" style="font-size: 0.75rem; padding: 4px 10px;" onclick="panicExit()">⚠️ EXIT ALL</button>
+            <button class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px;" data-bs-toggle="modal" data-bs-target="#settingsModal">⚙️</button>
         </div>
     </div>
 
-    <div class="nav-tabs">
-        <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
-        <div class="nav-btn" onclick="switchTab('pos')">💼 Active</div>
-        <div class="nav-btn" onclick="switchTab('closed')">📜 Closed</div>
-    </div>
+    {% block content %}
+        <div class="nav-tabs">
+            <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
+            <div class="nav-btn" onclick="switchTab('pos')">💼 Active</div>
+            <div class="nav-btn" onclick="switchTab('closed')">📜 Closed</div>
+        </div>
 
-    {% include 'parts/tab_trade.html' %}
-    {% include 'parts/tab_active.html' %}
-    {% include 'parts/tab_closed.html' %}
+        {% include 'parts/tab_trade.html' %}
+        {% include 'parts/tab_active.html' %}
+        {% include 'parts/tab_closed.html' %}
+    {% endblock %}
 
     {% endif %}
 </div>

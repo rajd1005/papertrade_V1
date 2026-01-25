@@ -69,6 +69,42 @@
     </div>
     {% else %}
     
+    <div class="card mb-3 shadow-sm border-0">
+        <div class="card-body d-flex align-items-center justify-content-between py-2">
+            <div class="d-flex align-items-center gap-3">
+                <div class="bg-light rounded p-2 text-center" style="min-width: 80px;">
+                    <small class="d-block text-muted" style="font-size: 0.7rem;">STRATEGY</small>
+                    <span class="fw-bold text-primary">5-Min ORB</span>
+                </div>
+                
+                <div class="d-flex flex-column">
+                    <span class="badge bg-secondary mb-1" id="orb_status_badge">OFFLINE</span>
+                    <small class="text-muted" style="font-size: 0.75rem;">
+                        NIFTY Lot Size: <span id="orb_lot_size" class="fw-bold text-dark">--</span>
+                    </small>
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-3">
+                <div class="input-group input-group-sm" style="width: 150px;">
+                    <span class="input-group-text bg-white">Lots</span>
+                    <input type="number" id="orb_lots_input" class="form-control text-center fw-bold" value="1" min="1" onchange="updateOrbCalc()">
+                </div>
+                
+                <div class="text-end" style="min-width: 100px;">
+                    <small class="d-block text-muted" style="font-size: 0.7rem;">TOTAL QTY</small>
+                    <span id="orb_total_qty" class="fw-bold text-success fs-5">--</span>
+                </div>
+
+                <button class="btn btn-outline-success fw-bold btn-sm px-3" id="btn_orb_start" onclick="toggleOrb('start')">
+                    <i class="fas fa-play"></i> START
+                </button>
+                <button class="btn btn-danger fw-bold btn-sm px-3 d-none" id="btn_orb_stop" onclick="toggleOrb('stop')">
+                    <i class="fas fa-stop"></i> STOP
+                </button>
+            </div>
+        </div>
+    </div>
     <div class="ticker-bar rounded mb-3 shadow-sm d-flex justify-content-between align-items-center flex-nowrap p-2">
         <div class="d-flex align-items-center flex-nowrap gap-3">
             <span class="badge bg-success shadow-sm" id="status-badge">

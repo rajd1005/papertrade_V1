@@ -130,7 +130,9 @@ class ORBStrategyManager:
     def run_backtest(self, date_str, auto_execute=False):
         """
         Runs the ORB strategy logic on a past date.
-        If auto_execute is True, it imports the trade into the system.
+        MATCHES LIVE BOT LOGIC: 
+        1. Wait for Candle Close > Range (Signal)
+        2. Wait for Subsequent High/Low Break (Trigger)
         """
         try:
             # FIX: Ensure we have the REAL active lot size
@@ -139,7 +141,7 @@ class ORBStrategyManager:
                 if real_lot > 0: 
                     self.lot_size = real_lot
                 elif self.lot_size <= 0: 
-                    self.lot_size = 50 # Fallback
+                    self.lot_size = 50 
             except: pass
 
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -159,34 +161,62 @@ class ORBStrategyManager:
             r_high = float(first_candle['high'])
             r_low = float(first_candle['low'])
             
-            # 3. Find Signal
-            signal_found = False
-            signal_type = None
-            signal_candle = None
+            # 3. Find Signal & Trigger (State Machine)
+            signal_state = "NONE" # NONE, WAIT_BUY, WAIT_SELL
+            trigger_level = 0
             
+            trade_found = False
+            trade_type = None
+            trade_candle = None # The candle where TRIGGER happened (Entry Time)
+            
+            # Start from 09:20 candle (index 1)
             for i in range(1, len(df)):
                 c = df.iloc[i]
-                close = c['close']
-                c_dt = c['date']
+                close = float(c['close'])
+                high = float(c['high'])
+                low = float(c['low'])
                 
-                # Normalize Timestamp if string
+                # Timestamp handling
+                c_dt = c['date']
                 if isinstance(c_dt, str): 
                     try: c_dt = datetime.datetime.strptime(c_dt, "%Y-%m-%dT%H:%M:%S%z")
                     except: 
                         try: c_dt = datetime.datetime.strptime(c_dt, "%Y-%m-%d %H:%M:%S")
                         except: pass
                 
-                if hasattr(c_dt, 'time') and c_dt.time() >= self.cutoff_time: break
+                if hasattr(c_dt, 'time') and c_dt.time() >= self.cutoff_time: 
+                    break
                 
-                if close > r_high:
-                    if self.target_direction in ["BOTH", "CE"]:
-                        signal_found = True; signal_type = "CE"; signal_candle = c; break
-                elif close < r_low:
-                    if self.target_direction in ["BOTH", "PE"]:
-                        signal_found = True; signal_type = "PE"; signal_candle = c; break
+                # --- STATE MACHINE ---
+                
+                # A. Check for Triggers if waiting
+                if signal_state == "WAIT_BUY":
+                    if high > trigger_level:
+                        trade_found = True; trade_type = "CE"; trade_candle = c; break
+                    # Invalidate if it reverses? 
+                    if close < r_low: 
+                        signal_state = "NONE" # Reset if Close crosses opposite range
+                        
+                elif signal_state == "WAIT_SELL":
+                    if low < trigger_level:
+                        trade_found = True; trade_type = "PE"; trade_candle = c; break
+                    if close > r_high: 
+                        signal_state = "NONE"
+
+                # B. Look for New Signals (if not triggered yet)
+                if signal_state == "NONE":
+                    if close > r_high:
+                        if self.target_direction in ["BOTH", "CE"]:
+                            signal_state = "WAIT_BUY"
+                            trigger_level = high
+                            
+                    elif close < r_low:
+                        if self.target_direction in ["BOTH", "PE"]:
+                            signal_state = "WAIT_SELL"
+                            trigger_level = low
             
-            if not signal_found:
-                return {"status": "info", "message": f"No ORB Breakout found on {date_str} (Range: {r_high}-{r_low})"}
+            if not trade_found:
+                return {"status": "info", "message": f"No ORB Trigger found on {date_str} (Range: {r_high}-{r_low})"}
             
             # 4. Find Expiry
             api_expiry = None
@@ -197,27 +227,27 @@ class ORBStrategyManager:
 
             if api_expiry:
                 expiry_str = api_expiry
-                print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
-                # Fallback: Tuesday Calculation
-                days_ahead = (1 - target_date.weekday() + 7) % 7 
+                # FIX: Nifty Expiry is THURSDAY (3), not Tuesday (1)
+                days_ahead = (3 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
             
             # 5. Build Symbol Details
-            close_price = float(signal_candle['close'])
-            atm_strike = round(close_price / 50) * 50
-            entry_time_str = str(signal_candle['date'])
-            if hasattr(signal_candle['date'], 'strftime'):
-                entry_time_str = signal_candle['date'].strftime("%Y-%m-%dT%H:%M")
+            spot_at_entry = float(trade_candle['close']) 
+            atm_strike = round(spot_at_entry / 50) * 50
+            
+            entry_time_str = str(trade_candle['date'])
+            if hasattr(trade_candle['date'], 'strftime'):
+                entry_time_str = trade_candle['date'].strftime("%Y-%m-%dT%H:%M")
 
             # 6. Resolve Symbol
-            sim_symbol = smart_trader.get_exact_symbol("NIFTY", expiry_str, atm_strike, signal_type)
+            sim_symbol = smart_trader.get_exact_symbol("NIFTY", expiry_str, atm_strike, trade_type)
             
             if not sim_symbol:
                 return {
                     "status": "warning",
-                    "message": f"✅ Signal Detected (SPOT) but Option Expired/Missing.\nCannot Execute Trade."
+                    "message": f"✅ Triggered (SPOT) but Option Expired/Missing.\nCannot Execute Trade."
                 }
 
             # --- AUTO EXECUTE LOGIC ---
@@ -227,10 +257,10 @@ class ORBStrategyManager:
                 if not opt_token:
                     return {"status": "error", "message": "Active Token not found for Symbol. Cannot Execute."}
                 
-                # Fetch candle at signal time
-                s_time = signal_candle['date']
+                # Fetch candle at ENTRY time
+                s_time = trade_candle['date']
                 
-                # FIX: Remove Timezone Info to prevent API Error
+                # Fix Timezone Info
                 if isinstance(s_time, str):
                     try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
                     except: 
@@ -274,7 +304,6 @@ class ORBStrategyManager:
                     # Ensure lot size is valid
                     current_lot_size = self.lot_size if self.lot_size > 0 else 50
                     
-                    # FIX: Always add Leg lots to Total Qty (even if exit is Full)
                     leg_qty_total = lots * current_lot_size
                     total_qty += leg_qty_total
                     
@@ -317,11 +346,11 @@ class ORBStrategyManager:
 
             return {
                 "status": "success",
-                "message": f"Signal Found: {signal_type} @ {entry_time_str}",
+                "message": f"Trigger Found: {trade_type} @ {entry_time_str} (Signal was earlier)",
                 "suggestion": {
                     "symbol": sim_symbol,
                     "time": entry_time_str,
-                    "type": signal_type
+                    "type": trade_type
                 }
             }
 

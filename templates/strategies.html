@@ -22,17 +22,8 @@
         </div>
     {% else %}
 
-    <div class="ticker-bar rounded mb-3 shadow-sm d-flex justify-content-between align-items-center flex-nowrap p-2">
-        <div class="d-flex align-items-center flex-nowrap gap-3">
-            <span class="ticker-item">NIFTY: <span id="n_lp" class="text-warning">...</span></span>
-            <span class="ticker-item">BANKNIFTY: <span id="b_lp" class="text-warning">...</span></span>
-            <span class="ticker-item">SENSEX: <span id="s_lp" class="text-warning">...</span></span>
-            <span class="ticker-item ms-2">TIME: <span id="live_clock" class="text-light">--:-- --</span></span>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <a href="/" class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;">⬅️ Dashboard</a>
-        </div>
-    </div>
+    {% set ticker_page = 'strategies' %}
+    {% include 'parts/ticker.html' %}
 
     <h4 class="mb-3 text-muted">Active Strategies</h4>
 

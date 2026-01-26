@@ -2,16 +2,39 @@
 let orbLotSize = 50; 
 let orbCheckInterval = null;
 
+// --- 1. STRICT ENFORCEMENT LOGIC ---
+// Defined globally so it can be called from anywhere (Poller, Events, Init)
+function enforceStrictReEntryRules() {
+    let dir = $('#orb_direction').val(); // Get current UI value
+    let $oppCheckbox = $('#orb_reentry_opposite');
+    let isBotRunning = $('#orb_direction').prop('disabled'); // Check if bot is running
+
+    // RULE: If Direction is NOT 'BOTH', Opposite Re-entry MUST be Disabled & Unchecked.
+    if (dir && dir !== 'BOTH') {
+        // Force Disable
+        if (!$oppCheckbox.prop('disabled')) {
+            $oppCheckbox.prop('disabled', true);
+        }
+        // Force Uncheck
+        if ($oppCheckbox.prop('checked')) {
+            $oppCheckbox.prop('checked', false);
+        }
+    } 
+    // RULE: If 'BOTH', enable ONLY if bot is STOPPED (Edit Mode)
+    else if (!isBotRunning) {
+        if ($oppCheckbox.prop('disabled')) {
+            $oppCheckbox.prop('disabled', false);
+        }
+    }
+}
+
 $(document).ready(function() {
-    // 1. Initialization
-    const REFRESH_INTERVAL = 1000; // 1 Second Refresh
+    const REFRESH_INTERVAL = 1000; 
     console.log("🚀 RD Algo Terminal Loaded");
 
-    // Init Bootstrap Tooltips
+    // Init Tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-      return new bootstrap.Tooltip(tooltipTriggerEl)
-    })
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl) })
 
     // Load Initial Data
     renderWatchlist();
@@ -20,33 +43,37 @@ $(document).ready(function() {
     // --- ORB STRATEGY INIT ---
     if ($('#orb_status_badge').length) {
         loadOrbStatus();
-        // Poll status every 3 seconds to keep UI in sync
+        // Poll status every 3 seconds
         orbCheckInterval = setInterval(loadOrbStatus, 3000);
     }
     
-    // --- NEW: Direction Constraint Logic ---
-    $('#orb_direction').change(function() {
-        let dir = $(this).val();
-        // If not BOTH, disable Opposite Re-entry
-        if(dir !== 'BOTH') {
-            $('#orb_reentry_opposite').prop('checked', false).prop('disabled', true);
-        } else {
-            // Re-enable if bot is not running (Edit Mode)
-             if (!$('#btn_orb_start').hasClass('d-none')) {
-                $('#orb_reentry_opposite').prop('disabled', false);
-             }
+    // --- 2. BINDINGS FOR STRICT RULES ---
+    
+    // A. When Direction Changes -> Enforce Rules Immediately
+    $('#orb_direction').change(enforceStrictReEntryRules);
+    
+    // B. Intercept ALL interactions on the Checkbox
+    // Catches clicks, double-clicks, and keyboard toggles
+    $('#orb_reentry_opposite').on('click mousedown mouseup change', function(e) {
+        let dir = $('#orb_direction').val();
+        if (dir && dir !== 'BOTH') {
+            e.preventDefault();
+            e.stopPropagation();
+            // Hard Reset State
+            $(this).prop('checked', false);
+            $(this).prop('disabled', true);
+            return false;
         }
     });
 
-    // 2. Date & Time Defaults
+    // Date & Time Defaults
     let now = new Date(); 
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
+    $('#hist_date').val(localDate.toISOString().slice(0,10));
+    if($('#imp_time').length) $('#imp_time').val(localDate.toISOString().slice(0,16));
     
-    $('#hist_date').val(localDate.toISOString().slice(0,10)); // History Date
-    if($('#imp_time').length) $('#imp_time').val(localDate.toISOString().slice(0,16)); // Import Time
-    
-    // 3. Global Event Bindings
+    // Global Event Bindings
     $('#hist_date, #hist_filter').change(loadClosedTrades);
     $('#active_filter').change(updateData);
     
@@ -68,10 +95,10 @@ $(document).ready(function() {
     $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
     $('#str').change(fetchLTP);
 
-    // 4. Import Modal Bindings
+    // Import Modal Bindings
     $('#imp_sym').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts')); 
     $('#imp_exp').change(() => fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str'));
-    $('#imp_str').change(fetchLTP); // Fetch LTP for Import too
+    $('#imp_str').change(fetchLTP); 
 
     $('input[name="imp_type"]').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts'));
     
@@ -80,7 +107,6 @@ $(document).ready(function() {
     $('#imp_sl_pts').on('input', calcImpFromPts);
     $('#imp_sl_price').on('input', calcImpFromPrice);
     
-    // Import "Full Exit" Checkboxes
     ['t1', 't2', 't3'].forEach(k => {
         $(`#imp_${k}_full`).change(function() {
             if($(this).is(':checked')) {
@@ -91,13 +117,13 @@ $(document).ready(function() {
         });
     });
 
-    // 5. Loops
+    // Loops
     setInterval(updateClock, 1000); updateClock();
     setInterval(updateData, REFRESH_INTERVAL); updateData();
 });
 
 // ==========================================
-// ORB STRATEGY FUNCTIONS (UPDATED)
+// ORB STRATEGY FUNCTIONS
 // ==========================================
 
 function loadOrbStatus() {
@@ -110,17 +136,15 @@ function loadOrbStatus() {
 
         // 2. Update Active State UI
         if (data.active) {
+            // --- RUNNING STATE ---
             $('#orb_status_badge').removeClass('bg-secondary').addClass('bg-success').text('RUNNING');
             
-            // Toggle Buttons
             $('#btn_orb_start').addClass('d-none');
             $('#btn_orb_stop').removeClass('d-none');
             
-            // Lock Controls & Sync Value (Only if not focused to avoid typing interruption)
+            // Sync Values (Server is Master)
             if (!$('#orb_lots_input').is(':focus')) $('#orb_lots_input').val(data.current_lots);
             if (!$('#orb_mode_input').is(':focus')) $('#orb_mode_input').val(data.current_mode);
-            
-            // Sync New Features
             if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
             if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
 
@@ -129,30 +153,30 @@ function loadOrbStatus() {
             $('#orb_reentry_same_filter').val(data.re_sl_filter);
             $('#orb_reentry_opposite').prop('checked', data.re_opp);
 
-            // Disable Inputs while Running
+            // Lock ALL Inputs
             $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
             
         } else {
+            // --- STOPPED STATE ---
             $('#orb_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
             
-            // Toggle Buttons
             $('#btn_orb_start').removeClass('d-none');
             $('#btn_orb_stop').addClass('d-none');
             
-            // Unlock Controls
+            // NOTE: We DO NOT sync inputs from server here to allow User Editing without overwriting.
+            
+            // Unlock Main Controls
             $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', false);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter').prop('disabled', false);
             
-            // Logic Check for Opposite Re-entry Enable/Disable based on Direction
-            if(data.current_direction !== 'BOTH') {
-                $('#orb_reentry_opposite').prop('disabled', true);
-            } else {
-                $('#orb_reentry_opposite').prop('disabled', false);
-            }
+            // The Opposite Re-entry Checkbox state is managed by enforceStrictReEntryRules() below
         }
         
-        // 3. Recalculate Totals
+        // 3. ENFORCE RULES (Overrides any previous unlock)
+        enforceStrictReEntryRules();
+        
+        // 4. Recalculate Totals
         updateOrbCalc();
     });
 }
@@ -162,9 +186,7 @@ function updateOrbCalc() {
     let userLots = parseInt(input.val()) || 0;
     
     // Ensure positive integer
-    if (userLots < 2) {
-        // Just visual hint, validation happens on click
-    }
+    if (userLots < 2) { }
     
     let totalQty = userLots * orbLotSize;
     $('#orb_total_qty').text(totalQty);
@@ -172,36 +194,27 @@ function updateOrbCalc() {
 
 function toggleOrb(action) {
     let lots = parseInt($('#orb_lots_input').val()) || 2;
-    let mode = $('#orb_mode_input').val(); // Get selected mode (PAPER/LIVE/SHADOW)
+    let mode = $('#orb_mode_input').val(); 
     let direction = $('#orb_direction').val();
     let cutoff = $('#orb_cutoff').val();
 
-    // New Re-entry Params
     let re_sl = $('#orb_reentry_same_sl').is(':checked');
     let re_sl_filter = $('#orb_reentry_same_filter').val();
+    
+    // Force Disable Opposite if Direction is restricted (Sanity Check)
     let re_opp = $('#orb_reentry_opposite').is(':checked');
+    if (direction !== 'BOTH') re_opp = false;
 
     if (action === 'start') {
-        // VALIDATION: Minimum 2 Lots
-        if (lots < 2) {
-            alert("Minimum 2 lots required.");
-            return;
-        }
-        
-        // VALIDATION: Multiple of 2 Only
+        if (lots < 2) { alert("Minimum 2 lots required."); return; }
         if (lots % 2 !== 0) {
-            lots += 1; // Auto-correct to next even number
+            lots += 1; 
             alert("⚠️ Lots adjusted to " + lots + ". Must be a multiple of 2.");
             $('#orb_lots_input').val(lots);
         }
-
-        if (!cutoff) {
-            alert("Please select a valid Cutoff Time.");
-            return;
-        }
+        if (!cutoff) { alert("Please select a valid Cutoff Time."); return; }
     }
 
-    // Disable buttons to prevent double-click
     $('#btn_orb_start, #btn_orb_stop').prop('disabled', true);
     
     let payload = {
@@ -221,7 +234,6 @@ function toggleOrb(action) {
         contentType: 'application/json',
         data: JSON.stringify(payload),
         success: function(res) {
-            // Show result
             if(window.showFloatingAlert) {
                 showFloatingAlert(res.message, res.status === 'success' ? 'success' : 'danger');
             } else {

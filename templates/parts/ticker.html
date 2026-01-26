@@ -11,9 +11,10 @@
     </div>
 
     <div class="d-flex align-items-center gap-2">
+        
         {% if ticker_page == 'dashboard' %}
             <a href="/strategies" class="btn btn-primary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;">🎯 Strategies</a>
-        {% elif ticker_page == 'strategies' %}
+        {% else %}
             <a href="/" class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;">⬅️ Dashboard</a>
         {% endif %}
 

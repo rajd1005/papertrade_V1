@@ -78,7 +78,6 @@ class ORBStrategyManager:
             # 3. Set Direction & Cutoff
             self.target_direction = direction.upper()
             try:
-                # Parse string "HH:MM" to datetime.time
                 t_parts = cutoff_str.split(':')
                 self.cutoff_time = datetime.time(int(t_parts[0]), int(t_parts[1]))
             except:
@@ -138,15 +137,12 @@ class ORBStrategyManager:
                 now = datetime.datetime.now(IST)
                 curr_time = now.time()
 
-                # --- 1. Universal Time Cutoff (User Defined) ---
-                # This applies regardless of profit/loss or trade history
+                # --- 1. Universal Time Cutoff ---
                 if curr_time >= self.cutoff_time:
                     if not self.is_done_for_day:
                         print(f"⏰ [ORB] Cutoff Time ({self.cutoff_time}) Reached. Stopping Strategy.")
                         self.is_done_for_day = True
                         self.signal_state = "NONE"
-                    
-                    # Wait 1 minute to avoid CPU spin, then re-check
                     time.sleep(60)
                     continue
 
@@ -155,7 +151,7 @@ class ORBStrategyManager:
                     time.sleep(5)
                     continue
                 
-                # Capture ORB Range (High/Low of 09:15 candle)
+                # Capture ORB Range
                 if self.range_high == 0:
                     df = self._fetch_last_n_candles(self.nifty_spot_token, self.timeframe, n=20)
                     if not df.empty:
@@ -180,7 +176,6 @@ class ORBStrategyManager:
                     continue
 
                 # --- 4. Signal Generation ---
-                # Note: Direction filtering happens inside _check_signals
                 self._check_signals()
 
                 # --- 5. Entry Trigger ---
@@ -211,9 +206,14 @@ class ORBStrategyManager:
         candle_low = sig_candle_spot['low']
         candle_time = sig_candle_spot['date']
 
-        # Call Signal (ONLY if Direction is BOTH or CE)
+        # Call Signal
         if close_price > self.range_high and self.target_direction in ["BOTH", "CE"]:
-            if self.last_trade_side == "CE" and self.sl_hit_count > 0: return 
+            
+            # --- STRICT RE-ENTRY BLOCK ---
+            # If we traded CE before (Profit OR Loss), do not allow CE again.
+            if self.last_trade_side == "CE": return 
+            # -----------------------------
+
             if volume_ok:
                 if self.signal_state != "WAIT_BUY":
                     print(f"🔔 [ORB] Call Signal (Volume OK). Waiting for break of {candle_high}")
@@ -225,9 +225,14 @@ class ORBStrategyManager:
                     print("⚠️ [ORB] Switch Rule: Sell Setup Invalidated. Resetting.")
                     self.signal_state = "NONE"
 
-        # Put Signal (ONLY if Direction is BOTH or PE)
+        # Put Signal
         elif close_price < self.range_low and self.target_direction in ["BOTH", "PE"]:
-            if self.last_trade_side == "PE" and self.sl_hit_count > 0: return
+            
+            # --- STRICT RE-ENTRY BLOCK ---
+            # If we traded PE before (Profit OR Loss), do not allow PE again.
+            if self.last_trade_side == "PE": return
+            # -----------------------------
+
             if volume_ok:
                 if self.signal_state != "WAIT_SELL":
                     print(f"🔔 [ORB] Put Signal (Volume OK). Waiting for break of {candle_low}")
@@ -300,7 +305,6 @@ class ORBStrategyManager:
             {'enabled': False, 'lots': 0, 'trail_to_entry': False}
         ]
         
-        # Use user-selected MODE (LIVE/PAPER/SHADOW)
         res = trade_manager.create_trade_direct(
             self.kite,
             mode=self.mode, 

@@ -11,6 +11,10 @@ instrument_dump = None
 symbol_map = {} # FAST LOOKUP CACHE
 
 def fetch_instruments(kite):
+    """
+    Downloads the master instrument list, optimizes dates, and builds a fast lookup map.
+    Prioritizes specific exchanges (NFO > MCX > NSE) to handle duplicate symbols.
+    """
     global instrument_dump, symbol_map
     
     if instrument_dump is not None and not instrument_dump.empty and symbol_map: 
@@ -32,10 +36,13 @@ def fetch_instruments(kite):
         
         print("⚡ Building Fast Lookup Cache...")
         temp_df = instrument_dump.copy()
+        
+        # Priority: NFO > MCX > CDS > NSE > BSE
         exchange_priority = {'NFO': 0, 'MCX': 1, 'CDS': 2, 'NSE': 3, 'BSE': 4, 'BFO': 5}
         temp_df['priority'] = temp_df['exchange'].map(exchange_priority).fillna(99)
         temp_df.sort_values('priority', inplace=True)
         unique_symbols = temp_df.drop_duplicates(subset=['tradingsymbol'])
+        
         symbol_map = unique_symbols.set_index('tradingsymbol').to_dict('index')
         print(f"✅ Instruments Downloaded & Indexed. Count: {len(instrument_dump)}")
         
@@ -164,17 +171,24 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     if instrument_dump is None or instrument_dump.empty: fetch_instruments(kite)
     if instrument_dump is None or instrument_dump.empty: return {}
     
+    if "(" in symbol and ")" in symbol:
+        try:
+            parts = symbol.split('(')
+            if len(parts) > 1: preferred_exchange = parts[1].split(')')[0].strip()
+        except: pass
+
     clean = get_zerodha_symbol(symbol)
     today = datetime.now(IST).date()
     rows = instrument_dump[instrument_dump['name'] == clean]
     if rows.empty: return {}
 
-    # Basic LTP Logic
     exchanges = rows['exchange'].unique().tolist()
     exchange_to_use = preferred_exchange if preferred_exchange and preferred_exchange in exchanges else ("NSE" if "NSE" in exchanges else exchanges[0])
+    
     quote_sym = f"{exchange_to_use}:{clean}"
     if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
     if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
+    if clean == "SENSEX": quote_sym = "BSE:SENSEX"
     
     ltp = 0
     try:
@@ -187,12 +201,13 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     futs = rows[(rows['exchange'] == 'NFO') & (rows['instrument_type'] == 'FUT')]
     if not futs.empty:
         lot = int(futs.iloc[0]['lot_size'])
+        if ex == 'CDS': lot = adjust_cds_lot_size(clean, lot)
     else:
         # Fallback to Options if FUT not found
         opts = rows[(rows['exchange'] == 'NFO') & (rows['instrument_type'].isin(['CE', 'PE']))]
         if not opts.empty:
             lot = int(opts.iloc[0]['lot_size'])
-
+            
     f_exp, o_exp = [], []
     if 'expiry_str' in rows.columns:
         f_exp = sorted(rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
@@ -200,10 +215,11 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     
     return {"symbol": clean, "ltp": ltp, "lot_size": lot, "fut_expiries": f_exp, "opt_expiries": o_exp}
 
-# --- NEW: ROBUST ACTIVE LOT SIZE FETCHER ---
+# --- NEW: ACTIVE LOT SIZE FETCHER ---
 def fetch_active_lot_size(kite, symbol_name):
     """
     Specifically finds the Lot Size for a symbol (like NIFTY) from active NFO contracts.
+    Checks FUT first (Most accurate), then Options.
     """
     global instrument_dump
     if instrument_dump is None or instrument_dump.empty: fetch_instruments(kite)
@@ -212,7 +228,7 @@ def fetch_active_lot_size(kite, symbol_name):
     clean = get_zerodha_symbol(symbol_name)
     
     try:
-        # 1. Look for Futures (Most reliable)
+        # 1. Look for Futures (Most reliable for Lot Size)
         mask_fut = (instrument_dump['name'] == clean) & (instrument_dump['exchange'] == 'NFO') & (instrument_dump['instrument_type'] == 'FUT')
         df_fut = instrument_dump[mask_fut]
         if not df_fut.empty:
@@ -286,15 +302,18 @@ def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
         print(f"History Fetch Error: {e}")
         return []
 
+# --- AUTO-FETCH EXPIRY FUNCTION (FIXED) ---
 def get_next_weekly_expiry(symbol, from_date):
     """
     Finds the nearest weekly expiry from the active instrument list.
+    Automatically handles Tuesday/Thursday logic and holidays if data is available in API.
     """
     global instrument_dump
     if instrument_dump is None or instrument_dump.empty: return None
     
     try:
         clean = get_zerodha_symbol(symbol)
+        # Filter for Options/Futures
         mask = (instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE', 'FUT']))
         
         # FIX: Explicit copy to avoid SettingWithCopyWarning
@@ -302,11 +321,15 @@ def get_next_weekly_expiry(symbol, from_date):
         
         if df.empty: return None
         
+        # Ensure we work with date objects
         df['expiry_dt'] = pd.to_datetime(df['expiry'], errors='coerce').dt.date
+        
+        # Filter dates >= target date
         future_expiries = df[df['expiry_dt'] >= from_date]['expiry_dt'].unique()
         
         if len(future_expiries) == 0: return None
         
+        # Return the earliest one found
         nearest = min(future_expiries)
         return nearest.strftime('%Y-%m-%d')
         

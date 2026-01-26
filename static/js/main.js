@@ -128,55 +128,43 @@ $(document).ready(function() {
 
 function loadOrbStatus() {
     $.get('/api/orb/params', function(data) {
-        // 1. Update Lot Size
         if (data.lot_size && data.lot_size > 0) {
             orbLotSize = data.lot_size;
             $('#orb_lot_size').text(orbLotSize);
         }
 
-        // 2. Update Active State UI
         if (data.active) {
-            // --- RUNNING STATE ---
             $('#orb_status_badge').removeClass('bg-secondary').addClass('bg-success').text('RUNNING');
-            
             $('#btn_orb_start').addClass('d-none');
             $('#btn_orb_stop').removeClass('d-none');
             
-            // Sync Values (Server is Master)
+            // Sync Values from Server
             if (!$('#orb_lots_input').is(':focus')) $('#orb_lots_input').val(data.current_lots);
             if (!$('#orb_mode_input').is(':focus')) $('#orb_mode_input').val(data.current_mode);
             if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
             if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
 
-            // Sync Re-entry Settings
             $('#orb_reentry_same_sl').prop('checked', data.re_sl);
             $('#orb_reentry_same_filter').val(data.re_sl_filter);
             $('#orb_reentry_opposite').prop('checked', data.re_opp);
 
-            // Lock ALL Inputs
+            // Lock Inputs
             $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
             
         } else {
-            // --- STOPPED STATE ---
             $('#orb_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
-            
             $('#btn_orb_start').removeClass('d-none');
             $('#btn_orb_stop').addClass('d-none');
             
-            // NOTE: We DO NOT sync inputs from server here to allow User Editing without overwriting.
-            
-            // Unlock Main Controls
+            // Unlock Inputs (Do not overwrite with server values to allow editing)
             $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', false);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter').prop('disabled', false);
             
-            // The Opposite Re-entry Checkbox state is managed by enforceStrictReEntryRules() below
+            // Strict disable logic applied by enforceStrictReEntryRules()
         }
         
-        // 3. ENFORCE RULES (Overrides any previous unlock)
         enforceStrictReEntryRules();
-        
-        // 4. Recalculate Totals
         updateOrbCalc();
     });
 }
@@ -184,10 +172,6 @@ function loadOrbStatus() {
 function updateOrbCalc() {
     let input = $('#orb_lots_input');
     let userLots = parseInt(input.val()) || 0;
-    
-    // Ensure positive integer
-    if (userLots < 2) { }
-    
     let totalQty = userLots * orbLotSize;
     $('#orb_total_qty').text(totalQty);
 }
@@ -200,9 +184,9 @@ function toggleOrb(action) {
 
     let re_sl = $('#orb_reentry_same_sl').is(':checked');
     let re_sl_filter = $('#orb_reentry_same_filter').val();
-    
-    // Force Disable Opposite if Direction is restricted (Sanity Check)
     let re_opp = $('#orb_reentry_opposite').is(':checked');
+
+    // Force disable in payload if strict check fails
     if (direction !== 'BOTH') re_opp = false;
 
     if (action === 'start') {
@@ -218,41 +202,167 @@ function toggleOrb(action) {
     $('#btn_orb_start, #btn_orb_stop').prop('disabled', true);
     
     let payload = {
-        action: action,
-        lots: lots,
-        mode: mode,
-        direction: direction,
-        cutoff: cutoff,
-        re_sl: re_sl,
-        re_sl_filter: re_sl_filter,
-        re_opp: re_opp
+        action: action, lots: lots, mode: mode, direction: direction, cutoff: cutoff,
+        re_sl: re_sl, re_sl_filter: re_sl_filter, re_opp: re_opp
     };
 
     $.ajax({
-        url: '/api/orb/toggle',
-        type: 'POST',
-        contentType: 'application/json',
+        url: '/api/orb/toggle', type: 'POST', contentType: 'application/json',
         data: JSON.stringify(payload),
         success: function(res) {
-            if(window.showFloatingAlert) {
-                showFloatingAlert(res.message, res.status === 'success' ? 'success' : 'danger');
-            } else {
-                alert(res.message);
-            }
+            if(window.showFloatingAlert) showFloatingAlert(res.message, res.status === 'success' ? 'success' : 'danger');
+            else alert(res.message);
             loadOrbStatus();
         },
-        error: function(err) {
-            alert("Request Failed: " + err.statusText);
-        },
-        complete: function() {
-            $('#btn_orb_start, #btn_orb_stop').prop('disabled', false);
-        }
+        error: function(err) { alert("Request Failed"); },
+        complete: function() { $('#btn_orb_start, #btn_orb_stop').prop('disabled', false); }
     });
 }
 
 // ==========================================
-// CORE DASHBOARD FUNCTIONS
+// CORE DASHBOARD FUNCTIONS (RESTORED)
 // ==========================================
+
+function updateClock() {
+    let now = new Date();
+    let options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' };
+    let timeString = now.toLocaleTimeString('en-US', options);
+    $('#live_clock').text(timeString);
+}
+
+function updateData() {
+    // 1. Fetch Indices
+    $.getJSON('/api/indices', function(data) {
+        $('#n_lp').text(data.NIFTY.toFixed(2));
+        $('#b_lp').text(data.BANKNIFTY.toFixed(2));
+        $('#s_lp').text(data.SENSEX.toFixed(2));
+    });
+
+    // 2. Fetch Active Trades
+    // Only update positions table if it exists (Dashboard page)
+    if ($('#pos-container').length) {
+        $.getJSON('/api/positions', function(trades) {
+            let container = $('#pos-container');
+            container.empty();
+            let filter = $('#active_filter').val();
+            
+            let displayTrades = trades.filter(t => {
+                if (filter === 'LIVE') return t.mode === 'LIVE';
+                if (filter === 'PAPER') return t.mode === 'PAPER';
+                return true; 
+            });
+
+            if (displayTrades.length === 0) {
+                container.html('<div class="text-center text-muted p-4">No active positions</div>');
+            } else {
+                displayTrades.forEach(t => {
+                    let card = createTradeCard(t);
+                    container.append(card);
+                });
+            }
+        });
+    }
+}
+
+function createTradeCard(t) {
+    let pnlClass = t.pnl >= 0 ? 'text-success' : 'text-danger';
+    let pnlSign = t.pnl >= 0 ? '+' : '';
+    let badgeClass = t.mode === 'LIVE' ? 'bg-danger' : 'bg-primary';
+    
+    // Calculate progress for targets
+    let t1_status = t.t1_hit ? '<span class="badge bg-success">T1 Hit</span>' : '';
+    
+    let html = `
+    <div class="card mb-2 shadow-sm trade-card border-start border-4 ${t.pnl >= 0 ? 'border-success' : 'border-danger'}">
+        <div class="card-body p-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <span class="badge ${badgeClass} me-1">${t.mode}</span>
+                    <span class="fw-bold">${t.symbol}</span>
+                    <small class="text-muted ms-2">${t.entry_time.split(' ')[1]}</small>
+                </div>
+                <div class="text-end">
+                    <h5 class="mb-0 fw-bold ${pnlClass}">${pnlSign}₹${t.pnl.toFixed(2)}</h5>
+                </div>
+            </div>
+            
+            <div class="row g-1 mb-2" style="font-size: 0.85rem;">
+                <div class="col-3 text-muted">Qty: <span class="text-dark fw-bold">${t.qty}</span></div>
+                <div class="col-3 text-muted">Avg: <span class="text-dark fw-bold">${t.avg_price.toFixed(2)}</span></div>
+                <div class="col-3 text-muted">LTP: <span class="text-dark fw-bold">${t.ltp.toFixed(2)}</span></div>
+                <div class="col-3 text-muted">SL: <span class="text-danger fw-bold">${t.sl.toFixed(2)}</span></div>
+            </div>
+
+            <div class="d-flex gap-2 justify-content-end">
+                ${t1_status}
+                <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="editTrade('${t.id}')">✏️</button>
+                <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="closeTrade('${t.id}')">Exit</button>
+            </div>
+        </div>
+    </div>
+    `;
+    return html;
+}
+
+function closeTrade(id) {
+    if(confirm('Are you sure you want to close this trade?')) {
+        $.post('/close_trade/' + id, function(res) {
+            alert(res.message);
+            updateData();
+        });
+    }
+}
+
+function loadClosedTrades() {
+    if (!$('#closed-container').length) return;
+    
+    let date = $('#hist_date').val();
+    let filter = $('#hist_filter').val(); // LIVE / PAPER / ALL
+    
+    $.getJSON('/api/closed_trades', function(trades) {
+        let container = $('#closed-container');
+        container.empty();
+        
+        // Filter by date
+        let filtered = trades.filter(t => t.exit_time && t.exit_time.startsWith(date));
+        
+        // Filter by Mode
+        if (filter !== 'ALL') {
+            filtered = filtered.filter(t => t.mode === filter);
+        }
+
+        if (filtered.length === 0) {
+            container.html('<div class="text-center text-muted p-3">No trades found for this date.</div>');
+            return;
+        }
+
+        let totalPnL = 0;
+        let html = '<div class="list-group">';
+        
+        filtered.forEach(t => {
+            totalPnL += parseFloat(t.pnl);
+            let pnlColor = t.pnl >= 0 ? 'text-success' : 'text-danger';
+            html += `
+                <div class="list-group-item list-group-item-action">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1 fw-bold">${t.symbol} <span class="badge bg-secondary" style="font-size:0.6rem">${t.mode}</span></h6>
+                        <span class="fw-bold ${pnlColor}">₹${t.pnl.toFixed(2)}</span>
+                    </div>
+                    <small class="text-muted">Buy: ${t.avg_price} | Sell: ${t.exit_price}</small><br>
+                    <small class="text-muted">Time: ${t.entry_time.split(' ')[1]} - ${t.exit_time.split(' ')[1]}</small>
+                    <div class="mt-1"><span class="badge bg-light text-dark border">${t.status}</span></div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        $('#closed_pnl').text('₹' + totalPnL.toFixed(2));
+        if(totalPnL >= 0) $('#closed_pnl').removeClass('text-danger').addClass('text-success');
+        else $('#closed_pnl').removeClass('text-success').addClass('text-danger');
+        
+        container.html(html);
+    });
+}
 
 function updateDisplayValues() {
     let mode = $('#mode_input').val(); 
@@ -290,6 +400,87 @@ function panicExit() {
                 alert("Error: " + res.message);
             }
         });
+    }
+}
+
+// --- UTILS RESTORED ---
+
+function bindSearch(inputId, listId) {
+    $(inputId).on('input', function() {
+        let q = $(this).val();
+        if (q.length < 2) return;
+        $.getJSON('/api/search', { q: q }, function(data) {
+            let list = $(listId);
+            list.empty();
+            data.forEach(item => {
+                list.append(`<option value="${item}">`);
+            });
+        });
+    });
+}
+
+function loadDetails(symId, expId, typeSelector, qtyId, slId) {
+    let sym = $(symId).val();
+    if (!sym) return;
+    $.getJSON('/api/details', { symbol: sym }, function(d) {
+        if(d.lot_size) {
+            window.curLotSize = d.lot_size; 
+            $(qtyId).val(d.lot_size);
+        }
+        if(d.opt_expiries) {
+            let exps = d.opt_expiries.map(e => `<option value="${e}">${e}</option>`).join('');
+            $(expId).html(exps).trigger('change');
+        }
+    });
+}
+
+function fillChain(symId, expId, typeSelector, strId) {
+    let sym = $(symId).val();
+    let exp = $(expId).val();
+    let typ = $(typeSelector).val();
+    
+    // Get Spot LTP first to center chain
+    $.getJSON('/api/indices', function(indices) {
+        let ltp = 0;
+        if(sym.includes('NIFTY')) ltp = indices.NIFTY;
+        else if(sym.includes('BANK')) ltp = indices.BANKNIFTY;
+        
+        $.getJSON('/api/chain', { symbol: sym, expiry: exp, type: typ, ltp: ltp }, function(strikes) {
+            let opts = strikes.map(s => `<option value="${s}" ${s == strikes[Math.floor(strikes.length/2)] ? 'selected':''}>${s}</option>`).join('');
+            $(strId).html(opts).trigger('change');
+        });
+    });
+}
+
+function fetchLTP() {
+    let s = $('#sym').val(); let e = $('#exp').val(); let str = $('#str').val(); let t = $('input[name="type"]:checked').val();
+    if(s && e && str && t) {
+        $.getJSON('/api/specific_ltp', { symbol: s, expiry: e, strike: str, type: t }, function(res) {
+            $('#lim_pr').val(res.ltp);
+            calcRisk();
+        });
+    }
+    
+    // Also for Import Modal
+    let is = $('#imp_sym').val(); let ie = $('#imp_exp').val(); let istr = $('#imp_str').val(); let it = $('input[name="imp_type"]:checked').val();
+    if(is && ie && istr && it) {
+        $.getJSON('/api/specific_ltp', { symbol: is, expiry: ie, strike: istr, type: it }, function(res) {
+            $('#imp_price').val(res.ltp);
+            calculateImportRisk();
+        });
+    }
+}
+
+function calcRisk() {
+    let price = parseFloat($('#lim_pr').val()) || 0;
+    let sl_pts = parseFloat($('#sl_pts').val()) || 0;
+    let qty = parseInt($('#qty').val()) || 0;
+    
+    if (price > 0 && sl_pts > 0 && qty > 0) {
+        let risk = sl_pts * qty;
+        $('#risk_disp').text(`Risk: ₹${risk.toFixed(0)}`);
+    } else {
+        $('#risk_disp').text('');
     }
 }
 

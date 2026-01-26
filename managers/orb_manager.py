@@ -20,7 +20,7 @@ class ORBStrategyManager:
         # --- Strategy Constants ---
         self.timeframe = "5minute"
         self.nifty_spot_token = 256265 
-        self.lot_size = 50 
+        self.lot_size = 50 # Default, will update
         self.mode = "PAPER"
         
         # --- Config State ---
@@ -71,9 +71,8 @@ class ORBStrategyManager:
         
         if not self.active:
             try:
-                # Retrieve correct lot size on start
-                det = smart_trader.get_symbol_details(self.kite, "NIFTY")
-                fetched_lot = int(det.get('lot_size', 0))
+                # Retrieve active lot size from Options/Futures
+                fetched_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
                 if fetched_lot > 0: self.lot_size = fetched_lot
             except: pass
 
@@ -122,7 +121,7 @@ class ORBStrategyManager:
             self.active = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
-            print(f"🚀 [ORB] Started | Mode:{self.mode} | MaxLoss:{self.max_daily_loss}")
+            print(f"🚀 [ORB] Started | Mode:{self.mode} | MaxLoss:{self.max_daily_loss} | LotSize:{self.lot_size}")
 
     def stop(self):
         self.active = False
@@ -134,15 +133,13 @@ class ORBStrategyManager:
         If auto_execute is True, it imports the trade into the system.
         """
         try:
-            # FIX: Ensure Lot Size is current by checking Symbol Details (Futures), not just simple lookup
+            # FIX: Ensure we have the REAL active lot size from Option/Future
             try:
-                # Fetch details for NIFTY to get the Futures Lot Size (e.g., 50 or 75)
-                det = smart_trader.get_symbol_details(self.kite, "NIFTY")
-                ls = int(det.get('lot_size', 0))
-                if ls > 0: 
-                    self.lot_size = ls
+                real_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
+                if real_lot > 0: 
+                    self.lot_size = real_lot
                 elif self.lot_size <= 0: 
-                    self.lot_size = 50 # Default fallback only if fetch fails and existing is invalid
+                    self.lot_size = 50 # Default fallback
             except: pass
 
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -191,7 +188,7 @@ class ORBStrategyManager:
             if not signal_found:
                 return {"status": "info", "message": f"No ORB Breakout found on {date_str} (Range: {r_high}-{r_low})"}
             
-            # 4. Find Expiry
+            # 4. Find Expiry (Auto or Tuesday Fallback)
             api_expiry = None
             try:
                 if hasattr(smart_trader, 'get_next_weekly_expiry'):
@@ -200,12 +197,11 @@ class ORBStrategyManager:
 
             if api_expiry:
                 expiry_str = api_expiry
-                print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
+                # Fallback: Tuesday Calculation (Weekday 1)
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
-                print(f"⚠️ [ORB] Using Fallback Expiry (Tuesday): {expiry_str}")
             
             # 5. Build Symbol Details
             close_price = float(signal_candle['close'])
@@ -233,7 +229,6 @@ class ORBStrategyManager:
                 # Fetch candle at signal time
                 s_time = signal_candle['date']
                 
-                # Remove Timezone Info explicitly
                 if isinstance(s_time, str):
                     try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
                     except: 
@@ -242,7 +237,6 @@ class ORBStrategyManager:
                 elif hasattr(s_time, 'replace'):
                     s_time = s_time.replace(tzinfo=None)
                 
-                # Format strictly as string
                 from_str = s_time.strftime('%Y-%m-%d %H:%M:%S')
                 to_str = (s_time + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
                 
@@ -275,14 +269,13 @@ class ORBStrategyManager:
                     lots = leg.get('lots', 0)
                     is_full = leg.get('full', False)
                     
-                    # Ensure lot size is valid before calc
+                    # USE VALIDATED LOT SIZE
                     current_lot_size = self.lot_size if self.lot_size > 0 else 50
                     
-                    # Calculate lots for total tracking
+                    # Accumulate Total Qty (Logic Fix: Always add for entry)
                     total_qty += (lots * current_lot_size)
                     
-                    # Calculate Qty for this specific Leg Exit
-                    # If full, use 1000 flag, otherwise specific quantity
+                    # Calculate Exit Qty for this specific Leg
                     qty_leg = 1000 if is_full else (lots * current_lot_size)
                     
                     custom_targets.append(t_price)
@@ -302,7 +295,7 @@ class ORBStrategyManager:
                 res = replay_engine.import_past_trade(
                     self.kite,
                     symbol=sim_symbol,
-                    entry_dt_str=entry_time_str, 
+                    entry_dt_str=entry_time_str,
                     qty=total_qty,
                     entry_price=entry_est,
                     sl_price=sl_price,

@@ -249,6 +249,14 @@ class ORBStrategyManager:
                     "status": "warning",
                     "message": f"✅ Triggered (SPOT) but Option Expired/Missing.\nCannot Execute Trade."
                 }
+            
+            # FIX: UPDATE LOT SIZE FOR SPECIFIC OPTION SYMBOL
+            # This ensures we use the correct lot size for the specific contract (e.g. 75 or 25 or 50)
+            try:
+                sim_lot_size = smart_trader.get_lot_size(sim_symbol)
+                if sim_lot_size > 0:
+                    self.lot_size = sim_lot_size
+            except: pass
 
             # --- AUTO EXECUTE LOGIC ---
             if auto_execute:
@@ -285,6 +293,7 @@ class ORBStrategyManager:
                 if risk_points < 5: risk_points = 5
                 
                 # B. Build Target Controls & Custom Targets
+                # FIX: Logic perfectly matches Live Bot _execute_entry
                 custom_targets = []
                 t_controls = []
                 total_qty = 0
@@ -300,6 +309,7 @@ class ORBStrategyManager:
                     
                     lots = leg.get('lots', 0)
                     is_full = leg.get('full', False)
+                    trail = leg.get('trail', False)
                     
                     # Ensure lot size is valid
                     current_lot_size = self.lot_size if self.lot_size > 0 else 50
@@ -314,7 +324,7 @@ class ORBStrategyManager:
                     t_controls.append({
                         'enabled': True,
                         'lots': exit_qty,
-                        'trail_to_entry': leg.get('trail', False)
+                        'trail_to_entry': trail
                     })
                 
                 while len(custom_targets) < 3:
@@ -563,6 +573,12 @@ class ORBStrategyManager:
         current_expiry = details['opt_expiries'][0] 
         symbol_name = smart_trader.get_exact_symbol("NIFTY", current_expiry, atm_strike, trade_type)
         if not symbol_name: return
+
+        # FIX: Fetch Lot Size for the specific Option Symbol (Live Trade)
+        try:
+            ls = smart_trader.get_lot_size(symbol_name)
+            if ls > 0: self.lot_size = ls
+        except: pass
 
         sl_price = 0
         entry_est = smart_trader.get_ltp(self.kite, symbol_name)

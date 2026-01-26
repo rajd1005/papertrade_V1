@@ -21,7 +21,7 @@ class ORBStrategyManager:
         self.timeframe = "5minute"
         self.nifty_spot_token = 256265 
         
-        # UPDATED: Initialize to 0 to force fetch from Zerodha
+        # Initialize to 0 to force fetch from Zerodha
         self.lot_size = 0 
         
         self.mode = "PAPER"
@@ -73,7 +73,7 @@ class ORBStrategyManager:
               p_active=0, p_min=0, p_trail=0):
         
         if not self.active:
-            # --- UPDATED: Fetch Active Lot Size from Zerodha ---
+            # --- Fetch Active Lot Size from Zerodha ---
             try:
                 # 1. Try getting details from NIFTY index
                 det = smart_trader.get_symbol_details(self.kite, "NIFTY")
@@ -147,9 +147,10 @@ class ORBStrategyManager:
         MATCHES LIVE BOT LOGIC: 
         1. Wait for Candle Close > Range (Signal)
         2. Wait for Subsequent High/Low Break (Trigger)
+        3. Uses EXACT Target/Quantity configuration as Live Bot
         """
         try:
-            # UPDATED: Try to fetch Lot Size again in case it wasn't set
+            # Try to fetch Lot Size if not set
             if self.lot_size == 0:
                 try:
                     real_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
@@ -242,7 +243,7 @@ class ORBStrategyManager:
             if api_expiry:
                 expiry_str = api_expiry
             else:
-                # FIX: Nifty Expiry is THURSDAY (3), not Tuesday (1)
+                # Nifty Expiry is THURSDAY (3)
                 days_ahead = (3 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -270,7 +271,7 @@ class ORBStrategyManager:
                 if ls > 0: sim_lot_size = ls
             except: pass
             
-            # Fallback Check - If 0, we can't calculate qty
+            # Fallback Check
             if sim_lot_size <= 0:
                 return {"status": "error", "message": f"❌ Error: Lot Size is 0. Cannot simulate trade."}
 
@@ -309,7 +310,7 @@ class ORBStrategyManager:
                 if risk_points < 5: risk_points = 5
                 
                 # B. Build Target Controls & Custom Targets
-                # --- MATCHING LIVE BOT "TARGET CONFIGURATION" LOGIC ---
+                # --- EXACT MATCH OF LIVE BOT LOGIC ---
                 custom_targets = []
                 t_controls = []
                 
@@ -326,7 +327,7 @@ class ORBStrategyManager:
                     is_full = leg.get('full', False)
                     trail = leg.get('trail', False)
                     
-                    # Target Exit Quantity (Exactly matching Live Logic)
+                    # Target Exit Quantity (Live Logic: 1000 for full, else lots * lot_size)
                     exit_qty = 1000 if is_full else (lots * sim_lot_size)
                     
                     custom_targets.append(t_price)
@@ -340,12 +341,11 @@ class ORBStrategyManager:
                     custom_targets.append(0)
                     t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
-                # Calculate Total Entry Qty (Exactly matching Live Logic)
+                # Calculate Total Entry Qty
                 final_entry_lots = sum([leg.get('lots', 0) for leg in self.legs_config if leg.get('active', False)])
                 total_qty = final_entry_lots * sim_lot_size
                 
-                if total_qty <= 0:
-                     total_qty = sim_lot_size # Fallback safety
+                if total_qty <= 0: total_qty = sim_lot_size # Safety fallback
                 
                 # C. Execute Import
                 res = replay_engine.import_past_trade(

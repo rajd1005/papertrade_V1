@@ -344,6 +344,10 @@ def api_orb_toggle():
 
 @app.route('/api/orb/backtest', methods=['POST'])
 def api_orb_backtest():
+    """
+    Updates ALL Bot parameters (General, Risk, Targets) from UI before running backtest.
+    Ensures backtest simulation perfectly matches User Config.
+    """
     global orb_bot
     data = request.json
     date = data.get('date')
@@ -355,16 +359,46 @@ def api_orb_backtest():
     if not date:
         return jsonify({"status": "error", "message": "Date is required"})
     
-    # --- APPLY UI SETTINGS FOR EXECUTION ---
+    # --- 1. APPLY GENERAL SETTINGS ---
+    # Direction
+    direction = data.get('direction')
+    if direction:
+        orb_bot.target_direction = str(direction).upper()
+        
+    # Cutoff Time
+    cutoff = data.get('cutoff')
+    if cutoff:
+        try:
+            from datetime import time as dt_time
+            t_parts = cutoff.split(':')
+            orb_bot.cutoff_time = dt_time(int(t_parts[0]), int(t_parts[1]))
+        except: pass
+
+    # --- 2. APPLY TARGET CONFIGURATION (LEGS) ---
     legs = data.get('legs_config')
     if legs:
         orb_bot.legs_config = legs
         
+    # --- 3. APPLY RISK SETTINGS ---
     risk = data.get('risk')
     if risk:
+        # Standard Trade Risk
         orb_bot.trailing_sl_pts = float(risk.get('trail_pts', 0))
         orb_bot.sl_to_entry_mode = int(risk.get('sl_entry', 0))
+        orb_bot.max_daily_loss = abs(float(risk.get('max_loss', 0)))
         
+        # Profit Locking (Less relevant for single-trade backtest but good for consistency)
+        orb_bot.profit_active = float(risk.get('p_active', 0))
+        orb_bot.profit_lock_min = float(risk.get('p_min', 0))
+        orb_bot.profit_trail_step = float(risk.get('p_trail', 0))
+
+    # --- 4. APPLY RE-ENTRY SETTINGS ---
+    # (Updated for context, though backtest usually simulates single entry)
+    orb_bot.reentry_same_sl = bool(data.get('re_sl', False))
+    orb_bot.reentry_same_filter = str(data.get('re_sl_filter', 'BOTH')).upper()
+    orb_bot.reentry_opposite = bool(data.get('re_opp', False))
+        
+    # --- RUN SIMULATION ---
     result = orb_bot.run_backtest(date, auto_execute=auto_exec)
     return jsonify(result)
 

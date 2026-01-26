@@ -29,12 +29,15 @@ function enforceStrictReEntryRules() {
 }
 
 $(document).ready(function() {
-    const REFRESH_INTERVAL = 1000; 
+    // 1. Initialization
+    const REFRESH_INTERVAL = 1000; // 1 Second Refresh
     console.log("🚀 RD Algo Terminal Loaded");
 
-    // Init Tooltips
+    // Init Bootstrap Tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl) })
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl)
+    })
 
     // Load Initial Data
     renderWatchlist();
@@ -43,17 +46,17 @@ $(document).ready(function() {
     // --- ORB STRATEGY INIT ---
     if ($('#orb_status_badge').length) {
         loadOrbStatus();
-        // Poll status every 3 seconds
+        // Poll status every 3 seconds to keep UI in sync
         orbCheckInterval = setInterval(loadOrbStatus, 3000);
     }
-    
+
     // --- 2. BINDINGS FOR STRICT RULES ---
     
     // A. When Direction Changes -> Enforce Rules Immediately
     $('#orb_direction').change(enforceStrictReEntryRules);
     
     // B. Intercept ALL interactions on the Checkbox
-    // Catches clicks, double-clicks, and keyboard toggles
+    // Catches clicks, double-clicks, and keyboard toggles to prevent forcing it open
     $('#orb_reentry_opposite').on('click mousedown mouseup change', function(e) {
         let dir = $('#orb_direction').val();
         if (dir && dir !== 'BOTH') {
@@ -66,14 +69,15 @@ $(document).ready(function() {
         }
     });
 
-    // Date & Time Defaults
+    // 3. Date & Time Defaults
     let now = new Date(); 
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
-    $('#hist_date').val(localDate.toISOString().slice(0,10));
-    if($('#imp_time').length) $('#imp_time').val(localDate.toISOString().slice(0,16));
     
-    // Global Event Bindings
+    $('#hist_date').val(localDate.toISOString().slice(0,10)); // History Date
+    if($('#imp_time').length) $('#imp_time').val(localDate.toISOString().slice(0,16)); // Import Time
+    
+    // 4. Global Event Bindings
     $('#hist_date, #hist_filter').change(loadClosedTrades);
     $('#active_filter').change(updateData);
     
@@ -95,10 +99,10 @@ $(document).ready(function() {
     $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
     $('#str').change(fetchLTP);
 
-    // Import Modal Bindings
+    // 5. Import Modal Bindings
     $('#imp_sym').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts')); 
     $('#imp_exp').change(() => fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str'));
-    $('#imp_str').change(fetchLTP); 
+    $('#imp_str').change(fetchLTP); // Fetch LTP for Import too
 
     $('input[name="imp_type"]').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts'));
     
@@ -107,6 +111,7 @@ $(document).ready(function() {
     $('#imp_sl_pts').on('input', calcImpFromPts);
     $('#imp_sl_price').on('input', calcImpFromPrice);
     
+    // Import "Full Exit" Checkboxes
     ['t1', 't2', 't3'].forEach(k => {
         $(`#imp_${k}_full`).change(function() {
             if($(this).is(':checked')) {
@@ -117,7 +122,7 @@ $(document).ready(function() {
         });
     });
 
-    // Loops
+    // 6. Loops
     setInterval(updateClock, 1000); updateClock();
     setInterval(updateData, REFRESH_INTERVAL); updateData();
 });
@@ -128,43 +133,62 @@ $(document).ready(function() {
 
 function loadOrbStatus() {
     $.get('/api/orb/params', function(data) {
+        // 1. Update Lot Size
         if (data.lot_size && data.lot_size > 0) {
             orbLotSize = data.lot_size;
             $('#orb_lot_size').text(orbLotSize);
         }
 
+        // 2. Update Active State UI
         if (data.active) {
             $('#orb_status_badge').removeClass('bg-secondary').addClass('bg-success').text('RUNNING');
+            
+            // Toggle Buttons
             $('#btn_orb_start').addClass('d-none');
             $('#btn_orb_stop').removeClass('d-none');
             
-            // Sync Values from Server
+            // Lock Controls & Sync Value (Server is Master)
             if (!$('#orb_lots_input').is(':focus')) $('#orb_lots_input').val(data.current_lots);
             if (!$('#orb_mode_input').is(':focus')) $('#orb_mode_input').val(data.current_mode);
             if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
             if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
 
+            // Sync Re-entry Settings
             $('#orb_reentry_same_sl').prop('checked', data.re_sl);
             $('#orb_reentry_same_filter').val(data.re_sl_filter);
             $('#orb_reentry_opposite').prop('checked', data.re_opp);
 
-            // Lock Inputs
-            $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
-            $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
+            // Disable Inputs while Running
+            $('#orb_lots_input').prop('disabled', true);
+            $('#orb_mode_input').prop('disabled', true);
+            $('#orb_direction').prop('disabled', true);
+            $('#orb_cutoff').prop('disabled', true);
+            $('#orb_reentry_same_sl').prop('disabled', true);
+            $('#orb_reentry_same_filter').prop('disabled', true);
+            $('#orb_reentry_opposite').prop('disabled', true);
             
         } else {
             $('#orb_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
+            
+            // Toggle Buttons
             $('#btn_orb_start').removeClass('d-none');
             $('#btn_orb_stop').addClass('d-none');
             
-            // Unlock Inputs (Do not overwrite with server values to allow editing)
-            $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', false);
-            $('#orb_reentry_same_sl, #orb_reentry_same_filter').prop('disabled', false);
+            // Unlock Controls (BUT do not sync from server to allow editing)
+            $('#orb_lots_input').prop('disabled', false);
+            $('#orb_mode_input').prop('disabled', false);
+            $('#orb_direction').prop('disabled', false);
+            $('#orb_cutoff').prop('disabled', false);
+            $('#orb_reentry_same_sl').prop('disabled', false);
+            $('#orb_reentry_same_filter').prop('disabled', false);
             
-            // Strict disable logic applied by enforceStrictReEntryRules()
+            // The Opposite Re-entry Checkbox state is managed by enforceStrictReEntryRules() below
         }
         
+        // 3. ENFORCE RULES (Overrides any previous unlock)
         enforceStrictReEntryRules();
+        
+        // 4. Recalculate Totals
         updateOrbCalc();
     });
 }
@@ -172,13 +196,19 @@ function loadOrbStatus() {
 function updateOrbCalc() {
     let input = $('#orb_lots_input');
     let userLots = parseInt(input.val()) || 0;
+    
+    // Ensure positive integer
+    if (userLots < 2) {
+        // Just visual hint, validation happens on click
+    }
+    
     let totalQty = userLots * orbLotSize;
     $('#orb_total_qty').text(totalQty);
 }
 
 function toggleOrb(action) {
     let lots = parseInt($('#orb_lots_input').val()) || 2;
-    let mode = $('#orb_mode_input').val(); 
+    let mode = $('#orb_mode_input').val(); // Get selected mode (PAPER/LIVE/SHADOW)
     let direction = $('#orb_direction').val();
     let cutoff = $('#orb_cutoff').val();
 
@@ -186,41 +216,68 @@ function toggleOrb(action) {
     let re_sl_filter = $('#orb_reentry_same_filter').val();
     let re_opp = $('#orb_reentry_opposite').is(':checked');
 
-    // Force disable in payload if strict check fails
+    // Force disable in payload if strict check fails (Sanity Check)
     if (direction !== 'BOTH') re_opp = false;
 
     if (action === 'start') {
-        if (lots < 2) { alert("Minimum 2 lots required."); return; }
+        // VALIDATION: Minimum 2 Lots
+        if (lots < 2) {
+            alert("Minimum 2 lots required.");
+            return;
+        }
+        
+        // VALIDATION: Multiple of 2 Only
         if (lots % 2 !== 0) {
-            lots += 1; 
+            lots += 1; // Auto-correct to next even number
             alert("⚠️ Lots adjusted to " + lots + ". Must be a multiple of 2.");
             $('#orb_lots_input').val(lots);
         }
-        if (!cutoff) { alert("Please select a valid Cutoff Time."); return; }
+        
+        if(!cutoff) {
+            alert("Please select a valid Cutoff Time.");
+            return;
+        }
     }
 
+    // Disable buttons to prevent double-click
     $('#btn_orb_start, #btn_orb_stop').prop('disabled', true);
     
     let payload = {
-        action: action, lots: lots, mode: mode, direction: direction, cutoff: cutoff,
-        re_sl: re_sl, re_sl_filter: re_sl_filter, re_opp: re_opp
+        action: action,
+        lots: lots,
+        mode: mode,
+        direction: direction,
+        cutoff: cutoff,
+        re_sl: re_sl,
+        re_sl_filter: re_sl_filter,
+        re_opp: re_opp
     };
 
     $.ajax({
-        url: '/api/orb/toggle', type: 'POST', contentType: 'application/json',
+        url: '/api/orb/toggle',
+        type: 'POST',
+        contentType: 'application/json',
         data: JSON.stringify(payload),
         success: function(res) {
-            if(window.showFloatingAlert) showFloatingAlert(res.message, res.status === 'success' ? 'success' : 'danger');
-            else alert(res.message);
+            // Show result
+            if(window.showFloatingAlert) {
+                showFloatingAlert(res.message, res.status === 'success' ? 'success' : 'danger');
+            } else {
+                alert(res.message);
+            }
             loadOrbStatus();
         },
-        error: function(err) { alert("Request Failed"); },
-        complete: function() { $('#btn_orb_start, #btn_orb_stop').prop('disabled', false); }
+        error: function(err) {
+            alert("Request Failed: " + err.statusText);
+        },
+        complete: function() {
+            $('#btn_orb_start, #btn_orb_stop').prop('disabled', false);
+        }
     });
 }
 
 // ==========================================
-// CORE DASHBOARD FUNCTIONS (RESTORED)
+// CORE DASHBOARD FUNCTIONS
 // ==========================================
 
 function updateClock() {
@@ -231,15 +288,14 @@ function updateClock() {
 }
 
 function updateData() {
-    // 1. Fetch Indices
+    // 1. Fetch Indices (Updates Ticker on ALL Pages)
     $.getJSON('/api/indices', function(data) {
         $('#n_lp').text(data.NIFTY.toFixed(2));
         $('#b_lp').text(data.BANKNIFTY.toFixed(2));
         $('#s_lp').text(data.SENSEX.toFixed(2));
     });
 
-    // 2. Fetch Active Trades
-    // Only update positions table if it exists (Dashboard page)
+    // 2. Fetch Active Trades (Only for Dashboard Page)
     if ($('#pos-container').length) {
         $.getJSON('/api/positions', function(trades) {
             let container = $('#pos-container');
@@ -403,7 +459,9 @@ function panicExit() {
     }
 }
 
-// --- UTILS RESTORED ---
+// ==========================================
+// UTILS
+// ==========================================
 
 function bindSearch(inputId, listId) {
     $(inputId).on('input', function() {

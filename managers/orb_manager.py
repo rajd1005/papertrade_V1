@@ -24,7 +24,7 @@ class ORBStrategyManager:
         self.mode = "PAPER"
         
         # --- Config State ---
-        self.legs_config = [] # [{'active': T, 'lots': 1, 'full': F, 'ratio': 1.0, 'trail': T}, ...]
+        self.legs_config = [] 
         self.target_direction = "BOTH" 
         self.cutoff_time = datetime.time(13, 0) 
         
@@ -43,7 +43,7 @@ class ORBStrategyManager:
         
         # --- Strategy Session State ---
         self.session_pnl = 0.0
-        self.profit_lock_level = -999999 # Virtual floor for profit locking
+        self.profit_lock_level = -999999 
         self.is_profit_locked = False
         
         self.range_high = 0
@@ -127,9 +127,10 @@ class ORBStrategyManager:
         self.active = False
         print("🛑 [ORB] Strategy Engine Stopped")
 
-    def run_backtest(self, date_str):
+    def run_backtest(self, date_str, auto_execute=False):
         """
         Runs the ORB strategy logic on a past date.
+        If auto_execute is True, it imports the trade into the system.
         """
         try:
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -144,7 +145,7 @@ class ORBStrategyManager:
             
             df = pd.DataFrame(spot_data)
             
-            # 2. Identify Range (09:15-09:20)
+            # 2. Identify Range (09:15 candle)
             first_candle = df.iloc[0]
             r_high = float(first_candle['high'])
             r_low = float(first_candle['low'])
@@ -159,7 +160,6 @@ class ORBStrategyManager:
                 close = c['close']
                 c_dt = c['date']
                 
-                # Normalize Timestamp
                 if isinstance(c_dt, str): 
                     try: c_dt = datetime.datetime.strptime(c_dt, "%Y-%m-%dT%H:%M:%S%z")
                     except: 
@@ -178,8 +178,7 @@ class ORBStrategyManager:
             if not signal_found:
                 return {"status": "info", "message": f"No ORB Breakout found on {date_str} (Range: {r_high}-{r_low})"}
             
-            # 4. Find Expiry
-            # A. Try Auto-Fetch from API (For Active/Recent Contracts)
+            # 4. Find Expiry (Auto or Tuesday Fallback)
             api_expiry = None
             try:
                 if hasattr(smart_trader, 'get_next_weekly_expiry'):
@@ -188,24 +187,17 @@ class ORBStrategyManager:
 
             if api_expiry:
                 expiry_str = api_expiry
-                print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
-                # B. Fallback: Tuesday Calculation (For Expired Backtests)
-                # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-                # Logic: Find next Tuesday.
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
-                print(f"⚠️ [ORB] Using Fallback Expiry (Tuesday): {expiry_str}")
             
             # 5. Build Symbol Details
             close_price = float(signal_candle['close'])
             atm_strike = round(close_price / 50) * 50
-            entry_time_str = ""
+            entry_time_str = str(signal_candle['date'])
             if hasattr(signal_candle['date'], 'strftime'):
                 entry_time_str = signal_candle['date'].strftime("%Y-%m-%dT%H:%M")
-            else:
-                entry_time_str = str(signal_candle['date'])
 
             # 6. Resolve Symbol
             sim_symbol = smart_trader.get_exact_symbol("NIFTY", expiry_str, atm_strike, signal_type)
@@ -213,18 +205,94 @@ class ORBStrategyManager:
             if not sim_symbol:
                 return {
                     "status": "warning",
-                    "message": f"✅ ORB Signal Detected on SPOT!\n\n"
-                               f"• Type: {signal_type}\n"
-                               f"• Time: {entry_time_str.split('T')[-1]}\n"
-                               f"• Spot Price: {close_price}\n"
-                               f"• ATM Strike: {atm_strike}\n"
-                               f"• Target Expiry: {expiry_str}\n\n"
-                               f"⚠️ Note: Full Replay unavailable because Option Contract is expired."
+                    "message": f"✅ Signal Detected (SPOT) but Option Expired/Missing.\nCannot Execute Trade."
                 }
 
+            # --- AUTO EXECUTE LOGIC ---
+            if auto_execute:
+                # A. Fetch Option Data to get Entry Price & SL
+                opt_token = smart_trader.get_instrument_token(sim_symbol, "NFO")
+                if not opt_token:
+                    return {"status": "error", "message": "Active Token not found for Symbol. Cannot Execute."}
+                
+                # Fetch candle at signal time
+                s_time = signal_candle['date']
+                if isinstance(s_time, str): s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z")
+                
+                # Convert to offset-aware if needed
+                if s_time.tzinfo is None: s_time = IST.localize(s_time)
+                
+                opt_data = self.kite.historical_data(opt_token, s_time, s_time + datetime.timedelta(minutes=10), self.timeframe)
+                
+                if not opt_data:
+                    return {"status": "error", "message": "Could not fetch Option Candle for Pricing."}
+                
+                opt_candle = opt_data[0]
+                entry_est = float(opt_candle['close']) # Entry at Candle Close
+                sl_price = float(opt_candle['low'])    # SL at Candle Low
+                
+                risk_points = entry_est - sl_price
+                if risk_points < 5: risk_points = 5
+                
+                # B. Build Target Controls & Custom Targets
+                custom_targets = []
+                t_controls = []
+                total_qty = 0
+                
+                for leg in self.legs_config:
+                    if not leg.get('active', False):
+                        custom_targets.append(0)
+                        t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
+                        continue
+                        
+                    ratio = leg.get('ratio', 1.0)
+                    t_price = round(entry_est + (risk_points * ratio), 2)
+                    
+                    lots = leg.get('lots', 0)
+                    is_full = leg.get('full', False)
+                    qty_leg = 1000 if is_full else (lots * self.lot_size)
+                    
+                    if not is_full: total_qty += (lots * self.lot_size)
+                    
+                    custom_targets.append(t_price)
+                    t_controls.append({
+                        'enabled': True,
+                        'lots': qty_leg,
+                        'trail_to_entry': leg.get('trail', False)
+                    })
+                
+                # Fill to 3
+                while len(custom_targets) < 3:
+                    custom_targets.append(0)
+                    t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
+                
+                if total_qty == 0: total_qty = 50 # Fallback
+                
+                # C. Execute Import
+                res = replay_engine.import_past_trade(
+                    self.kite,
+                    symbol=sim_symbol,
+                    entry_time=entry_time_str,
+                    qty=total_qty,
+                    price=entry_est,
+                    sl=sl_price,
+                    targets=custom_targets,
+                    trailing_sl=self.trailing_sl_pts,
+                    sl_to_entry=self.sl_to_entry_mode,
+                    exit_multiplier=1,
+                    target_controls=t_controls,
+                    target_channels=['main']
+                )
+                
+                return {
+                    "status": "success",
+                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nEntry: {entry_est}\nSL: {sl_price}\nTime: {entry_time_str}\n\nCheck Dashboard."
+                }
+
+            # Normal Non-Execute Return
             return {
                 "status": "success",
-                "message": f"Signal Found: {signal_type} @ {entry_time_str}\nSpot: {close_price} | ATM: {atm_strike}",
+                "message": f"Signal Found: {signal_type} @ {entry_time_str}",
                 "suggestion": {
                     "symbol": sim_symbol,
                     "time": entry_time_str,
@@ -235,6 +303,7 @@ class ORBStrategyManager:
         except Exception as e:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
+    # ... (Rest of the class methods remain unchanged) ...
     def _get_nifty_futures_token(self):
         try:
             instruments = self.kite.instruments("NFO")
@@ -281,7 +350,6 @@ class ORBStrategyManager:
                     time.sleep(60)
                     continue
                 
-                # --- SESSION PNL & RISK CHECKS ---
                 if self.max_daily_loss > 0 and self.session_pnl <= -self.max_daily_loss:
                     if not self.is_done_for_day:
                         print(f"🛑 [ORB] Max Daily Loss Hit: {self.session_pnl}")
@@ -461,6 +529,7 @@ class ORBStrategyManager:
         # --- NEW: Build Targets from Full Config ---
         custom_targets = []
         t_controls = []
+        total_quantity_lots = 0
         
         for leg in self.legs_config:
             # Check Active
@@ -478,6 +547,7 @@ class ORBStrategyManager:
             target_price = round(target_price, 2)
             
             qty_for_leg = 1000 if is_full else (lots * self.lot_size)
+            if not is_full: total_quantity_lots += lots
             
             custom_targets.append(target_price)
             t_controls.append({
@@ -490,6 +560,7 @@ class ORBStrategyManager:
             custom_targets.append(0)
             t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
 
+        # Calculate Total Qty
         final_entry_lots = sum([leg.get('lots', 0) for leg in self.legs_config if leg.get('active', False)])
         full_qty = final_entry_lots * self.lot_size
         

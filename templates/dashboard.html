@@ -81,6 +81,8 @@
             <span class="ticker-item ms-2">TIME: <span id="live_clock" class="text-light">--:-- --</span></span>
         </div>
         <div class="d-flex align-items-center gap-2">
+             <a href="/strategies" class="btn btn-primary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;">🎯 Strategies</a>
+            
             <button class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;" data-bs-toggle="modal" data-bs-target="#importModal">📥 Import</button>
             <button class="btn btn-danger fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px; box-shadow: 0 0 5px rgba(220,53,69,0.5);" onclick="panicExit()">⚠️ EXIT ALL</button>
             <button class="btn btn-secondary fw-bold" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 4px;" data-bs-toggle="modal" data-bs-target="#settingsModal">⚙️ Settings</button>
@@ -96,108 +98,7 @@
     {% include 'parts/tab_trade.html' %}
     {% include 'parts/tab_active.html' %}
     {% include 'parts/tab_closed.html' %}
-
-    <div class="card mt-4 mb-3 shadow-sm border-0 bg-light">
-        <div class="card-body py-3">
-            <div class="row g-3 align-items-center">
-                
-                <div class="col-12 col-md-3 d-flex align-items-center justify-content-between justify-content-md-start gap-3">
-                    <div class="bg-white border rounded p-2 text-center" style="min-width: 80px;">
-                        <small class="d-block text-muted" style="font-size: 0.7rem;">STRATEGY</small>
-                        <span class="fw-bold text-primary">5-Min ORB</span>
-                    </div>
-                    
-                    <div class="d-flex flex-column text-end text-md-start">
-                        <span class="badge bg-secondary mb-1" id="orb_status_badge">OFFLINE</span>
-                        <small class="text-muted" style="font-size: 0.75rem;">
-                            Lot Size: <span id="orb_lot_size" class="fw-bold text-dark">--</span>
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-12 col-md-9">
-                    <div class="row g-2 align-items-center justify-content-end">
-                        
-                        <div class="col-6 col-md-3">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text bg-white border-0 fw-bold text-muted">Mode</span>
-                                <select class="form-select fw-bold border-0 shadow-sm" id="orb_mode_input">
-                                    <option value="PAPER" selected>📄 PAPER</option>
-                                    <option value="LIVE">🔴 LIVE</option>
-                                    <option value="SHADOW">👻 SHADOW</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="col-6 col-md-3">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text bg-white border-0 fw-bold text-muted">Lots</span>
-                                <input type="number" id="orb_lots_input" class="form-control text-center fw-bold border-0 shadow-sm" 
-                                       value="2" min="2" step="2" onchange="updateOrbCalc()">
-                            </div>
-                        </div>
-
-                        <div class="col-6 col-md-3">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text bg-white border-0 fw-bold text-muted">Dir</span>
-                                <select class="form-select fw-bold border-0 shadow-sm" id="orb_direction">
-                                    <option value="BOTH" selected>BOTH</option>
-                                    <option value="CE">CE Only</option>
-                                    <option value="PE">PE Only</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="col-6 col-md-3">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text bg-white border-0 fw-bold text-muted">Stop</span>
-                                <input type="time" id="orb_cutoff" class="form-control fw-bold border-0 shadow-sm" value="13:00">
-                            </div>
-                        </div>
-
-                        <div class="col-12">
-                            <div class="bg-white rounded p-2 shadow-sm d-flex flex-wrap gap-3 align-items-center justify-content-between">
-                                
-                                <div class="d-flex align-items-center gap-2">
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input" type="checkbox" id="orb_reentry_same_sl">
-                                        <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl">Re-Entry (Same Side SL)</label>
-                                    </div>
-                                    <select class="form-select form-select-sm border-0 bg-light fw-bold" id="orb_reentry_same_filter" style="width: 80px; font-size: 0.7rem;">
-                                        <option value="BOTH">BOTH</option>
-                                        <option value="CE">CE Only</option>
-                                        <option value="PE">PE Only</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-check form-switch m-0 border-start ps-3">
-                                    <input class="form-check-input" type="checkbox" id="orb_reentry_opposite">
-                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite">Re-Entry (Opposite Side)</label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="col-6 col-md-auto text-end text-md-center">
-                            <div class="bg-white rounded px-3 py-1 shadow-sm h-100 d-flex flex-column justify-content-center">
-                                <small class="d-block text-muted" style="font-size: 0.65rem;">TOTAL QTY</small>
-                                <span id="orb_total_qty" class="fw-bold text-success">--</span>
-                            </div>
-                        </div>
-
-                        <div class="col-6 col-md-auto text-end">
-                            <button class="btn btn-success fw-bold btn-sm px-4 w-100 shadow-sm py-2" id="btn_orb_start" onclick="toggleOrb('start')">
-                                <i class="fas fa-play"></i> START
-                            </button>
-                            <button class="btn btn-danger fw-bold btn-sm px-4 w-100 shadow-sm d-none py-2" id="btn_orb_stop" onclick="toggleOrb('stop')">
-                                <i class="fas fa-stop"></i> STOP
-                            </button>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    
     {% endif %}
 </div>
 

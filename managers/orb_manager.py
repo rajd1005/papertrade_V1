@@ -133,6 +133,12 @@ class ORBStrategyManager:
         If auto_execute is True, it imports the trade into the system.
         """
         try:
+            # Ensure Lot Size is current (Fix for 0 qty issue if bot wasn't started)
+            try:
+                ls = smart_trader.get_lot_size("NIFTY")
+                if ls > 0: self.lot_size = ls
+            except: pass
+
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
             
             # 1. Fetch Spot Data
@@ -190,6 +196,7 @@ class ORBStrategyManager:
                 expiry_str = api_expiry
                 print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
+                # Fallback: Tuesday Calculation (Weekday 1)
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -230,7 +237,7 @@ class ORBStrategyManager:
                 elif hasattr(s_time, 'replace'):
                     s_time = s_time.replace(tzinfo=None)
                 
-                # Format strictly as string
+                # Format strictly as string for Kite API
                 from_str = s_time.strftime('%Y-%m-%d %H:%M:%S')
                 to_str = (s_time + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
                 
@@ -262,6 +269,9 @@ class ORBStrategyManager:
                     
                     lots = leg.get('lots', 0)
                     is_full = leg.get('full', False)
+                    
+                    # Ensure lot size is valid
+                    if self.lot_size <= 0: self.lot_size = 50
                     qty_leg = 1000 if is_full else (lots * self.lot_size)
                     
                     if not is_full: total_qty += (lots * self.lot_size)
@@ -273,17 +283,18 @@ class ORBStrategyManager:
                         'trail_to_entry': leg.get('trail', False)
                     })
                 
+                # Fill up to 3 targets if needed
                 while len(custom_targets) < 3:
                     custom_targets.append(0)
                     t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
-                if total_qty == 0: total_qty = 50 
+                if total_qty == 0: total_qty = 50 # Default fallback
                 
                 # C. Execute Import
                 res = replay_engine.import_past_trade(
                     self.kite,
                     symbol=sim_symbol,
-                    entry_dt_str=entry_time_str, # <--- FIXED PARAMETER NAME HERE
+                    entry_dt_str=entry_time_str, # Passed correct parameter name
                     qty=total_qty,
                     entry_price=entry_est,
                     sl_price=sl_price,
@@ -300,6 +311,7 @@ class ORBStrategyManager:
                     "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nEntry: {entry_est}\nSL: {sl_price}\nTime: {entry_time_str}\n\nCheck Dashboard."
                 }
 
+            # If Auto Execute is False, return suggestion
             return {
                 "status": "success",
                 "message": f"Signal Found: {signal_type} @ {entry_time_str}",
@@ -359,6 +371,7 @@ class ORBStrategyManager:
                     time.sleep(60)
                     continue
                 
+                # --- SESSION PNL & RISK CHECKS ---
                 if self.max_daily_loss > 0 and self.session_pnl <= -self.max_daily_loss:
                     if not self.is_done_for_day:
                         print(f"🛑 [ORB] Max Daily Loss Hit: {self.session_pnl}")
@@ -538,6 +551,7 @@ class ORBStrategyManager:
         # --- NEW: Build Targets from Full Config ---
         custom_targets = []
         t_controls = []
+        total_quantity_lots = 0
         
         for leg in self.legs_config:
             # Check Active
@@ -555,6 +569,7 @@ class ORBStrategyManager:
             target_price = round(target_price, 2)
             
             qty_for_leg = 1000 if is_full else (lots * self.lot_size)
+            if not is_full: total_quantity_lots += lots
             
             custom_targets.append(target_price)
             t_controls.append({

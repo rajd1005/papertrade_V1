@@ -267,32 +267,28 @@ def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
         print(f"History Fetch Error: {e}")
         return []
 
-# --- NEW: AUTO-FETCH EXPIRY FUNCTION ---
+# --- NEW: AUTO-FETCH EXPIRY FUNCTION (WITH FIX) ---
 def get_next_weekly_expiry(symbol, from_date):
     """
     Finds the nearest weekly expiry from the active instrument list.
-    Automatically handles Tuesday/Thursday logic and holidays if data is available in API.
     """
     global instrument_dump
     if instrument_dump is None or instrument_dump.empty: return None
     
     try:
         clean = get_zerodha_symbol(symbol)
-        # Filter for Options/Futures
         mask = (instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE', 'FUT']))
-        df = instrument_dump[mask]
+        
+        # FIX: Explicit copy to avoid SettingWithCopyWarning
+        df = instrument_dump[mask].copy()
         
         if df.empty: return None
         
-        # Ensure we work with date objects
         df['expiry_dt'] = pd.to_datetime(df['expiry'], errors='coerce').dt.date
-        
-        # Filter dates >= target date
         future_expiries = df[df['expiry_dt'] >= from_date]['expiry_dt'].unique()
         
         if len(future_expiries) == 0: return None
         
-        # Return the earliest one found
         nearest = min(future_expiries)
         return nearest.strftime('%Y-%m-%d')
         

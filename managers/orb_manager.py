@@ -23,17 +23,24 @@ class ORBStrategyManager:
         
         # --- Strategy Settings ---
         self.lot_size = 50 
-        self.lots = 2      
         self.mode = "PAPER"
         
+        # Target/Leg Configuration
+        # Default: Leg 1 (1 Lot, 1:1, Trail), Leg 2 (1 Lot, 1:2, No Trail)
+        self.legs_config = [
+            {'lots': 1, 'ratio': 1.0, 'trail': True},
+            {'lots': 1, 'ratio': 2.0, 'trail': False},
+            {'lots': 0, 'ratio': 3.0, 'trail': False}
+        ]
+        
         # 1. Global Filters
-        self.target_direction = "BOTH" # BOTH, CE, PE
+        self.target_direction = "BOTH" 
         self.cutoff_time = datetime.time(13, 0) 
         
         # 2. Re-entry Logic Controls
-        self.reentry_same_sl = False      # Rule 1: Allow re-entry if SL hit on same side
-        self.reentry_same_filter = "BOTH" # Filter for Rule 1: BOTH/CE/PE
-        self.reentry_opposite = False     # Rule 2: Allow trade on opposite side
+        self.reentry_same_sl = False      
+        self.reentry_same_filter = "BOTH" 
+        self.reentry_opposite = False     
         
         # --- Strategy State ---
         self.range_high = 0
@@ -46,18 +53,21 @@ class ORBStrategyManager:
         self.trade_active = False
         self.current_trade_id = None
         
-        # Execution History (For Logic)
+        # Execution History
         self.ce_trades = 0
         self.pe_trades = 0
         self.last_trade_side = None 
-        self.last_trade_status = None # 'SL_HIT', 'TARGET_HIT', etc.
+        self.last_trade_status = None 
         self.is_done_for_day = False
         
         self.nifty_fut_token = None
 
-    def start(self, lots=2, mode="PAPER", direction="BOTH", cutoff_str="13:00", 
-              re_sl=False, re_sl_side="BOTH", re_opp=False):
-        """Starts strategy with advanced re-entry parameters"""
+    def start(self, mode="PAPER", direction="BOTH", cutoff_str="13:00", 
+              re_sl=False, re_sl_side="BOTH", re_opp=False, legs_config=None):
+        """
+        Starts strategy with advanced re-entry parameters and Multi-Leg support.
+        legs_config: List of dicts [{'lots': 1, 'ratio': 1.5, 'trail': True}, ...]
+        """
         if not self.active:
             # 1. Fetch Dynamic Lot Size
             try:
@@ -66,13 +76,19 @@ class ORBStrategyManager:
                 if fetched_lot > 0: self.lot_size = fetched_lot
             except: pass
 
-            # 2. Settings
-            self.lots = int(lots)
-            if self.lots < 2: self.lots = 2
-            if self.lots % 2 != 0: self.lots += 1
-
             self.mode = mode.upper()
             self.target_direction = direction.upper()
+            
+            # 2. Parse Legs
+            if legs_config and isinstance(legs_config, list):
+                self.legs_config = legs_config
+            
+            # Calculate total lots for display/logging
+            total_lots = sum([leg.get('lots', 0) for leg in self.legs_config])
+            if total_lots < 1:
+                print("⚠️ [ORB] Warning: Total Lots is 0. Defaulting to 1 lot.")
+                self.legs_config[0]['lots'] = 1
+
             try:
                 t_parts = cutoff_str.split(':')
                 self.cutoff_time = datetime.time(int(t_parts[0]), int(t_parts[1]))
@@ -83,14 +99,11 @@ class ORBStrategyManager:
             self.reentry_same_sl = bool(re_sl)
             self.reentry_same_filter = str(re_sl_side).upper()
             
-            # --- SANITIZATION: Force Disable Opposite if Direction is NOT Both ---
-            # Even if UI sends True, we force False here to prevent logic conflict.
+            # Force Disable Opposite if Direction is NOT Both
             if self.target_direction != "BOTH":
                 self.reentry_opposite = False
-                print(f"⚠️ [ORB] Override: 'Re-Entry Opposite' disabled because Direction is {self.target_direction}")
             else:
                 self.reentry_opposite = bool(re_opp)
-            # -------------------------------------------------------------------
 
             # 4. Reset State
             self.is_done_for_day = False
@@ -101,12 +114,10 @@ class ORBStrategyManager:
             self.signal_state = "NONE"
             self.trade_active = False
 
-            total_qty = self.lots * self.lot_size
-            
             self.active = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
-            print(f"🚀 [ORB] Started | Mode:{self.mode} | Dir:{self.target_direction} | Re-SL:{self.reentry_same_sl}({self.reentry_same_filter}) | Re-Opp:{self.reentry_opposite}")
+            print(f"🚀 [ORB] Started | Mode:{self.mode} | Lots:{total_lots} | Legs:{len(self.legs_config)}")
 
     def stop(self):
         self.active = False
@@ -142,7 +153,6 @@ class ORBStrategyManager:
 
         while self.active:
             try:
-                # --- 0. Hard Stop Check ---
                 if self.is_done_for_day:
                     time.sleep(5)
                     continue
@@ -150,7 +160,6 @@ class ORBStrategyManager:
                 now = datetime.datetime.now(IST)
                 curr_time = now.time()
 
-                # --- 1. Universal Cutoff Time ---
                 if curr_time >= self.cutoff_time:
                     if not self.is_done_for_day:
                         print(f"⏰ [ORB] Cutoff ({self.cutoff_time}) Reached. Done for Day.")
@@ -159,12 +168,10 @@ class ORBStrategyManager:
                     time.sleep(60)
                     continue
 
-                # --- 2. Wait for 09:20 ---
                 if curr_time < datetime.time(9, 20):
                     time.sleep(5)
                     continue
                 
-                # --- 3. Establish Range ---
                 if self.range_high == 0:
                     df = self._fetch_last_n_candles(self.nifty_spot_token, self.timeframe, n=20)
                     if not df.empty:
@@ -182,16 +189,13 @@ class ORBStrategyManager:
                         time.sleep(5)
                         continue
 
-                # --- 4. Active Trade Monitor ---
                 if self.trade_active:
                     self._monitor_active_trade()
                     time.sleep(1)
                     continue
 
-                # --- 5. Signals ---
                 self._check_signals()
 
-                # --- 6. Trigger ---
                 if self.signal_state != "NONE":
                     self._check_trigger()
 
@@ -202,50 +206,28 @@ class ORBStrategyManager:
                 time.sleep(5)
 
     def _can_trade_side(self, side):
-        """
-        Master Logic for Permissions.
-        side: 'CE' or 'PE'
-        """
-        # 1. Global Direction Filter (FIRST LINE OF DEFENSE)
-        # If User selected CE, and this is PE, we return False immediately.
-        # This overrides any Re-entry Logic below.
         if self.target_direction != "BOTH" and self.target_direction != side:
             return False
 
         total_trades = self.ce_trades + self.pe_trades
 
-        # 2. First Trade of the Day? Always ALLOW (if direction matches)
         if total_trades == 0:
             return True
 
-        # 3. Context: We have traded before.
-        # Check against Last Trade
         is_same_side = (side == self.last_trade_side)
         
-        # --- A. Same Side Re-entry Logic ---
         if is_same_side:
-            # Only if Rule 1 Enabled
             if not self.reentry_same_sl: 
                 return False
-            
-            # Only if Last Trade was SL Hit
             if self.last_trade_status != "SL_HIT":
                 return False
-            
-            # Only if Side Filter matches
             if self.reentry_same_filter != "BOTH" and self.reentry_same_filter != side:
                 return False
-
-            # Limit: Max 2 trades per side (1 initial + 1 re-entry) to prevent infinite loops
             current_side_count = self.ce_trades if side == "CE" else self.pe_trades
             if current_side_count >= 2:
                 return False
-                
             return True
-
-        # --- B. Opposite Side Logic ---
         else:
-            # Only if Rule 2 Enabled
             if self.reentry_opposite:
                 return True
             else:
@@ -271,7 +253,6 @@ class ORBStrategyManager:
         candle_low = sig_candle_spot['low']
         candle_time = sig_candle_spot['date']
 
-        # Call Signal
         if close_price > self.range_high:
             if self._can_trade_side("CE"):
                 if volume_ok:
@@ -283,7 +264,6 @@ class ORBStrategyManager:
                 else:
                     if self.signal_state == "WAIT_SELL": self.signal_state = "NONE"
 
-        # Put Signal
         elif close_price < self.range_low:
             if self._can_trade_side("PE"):
                 if volume_ok:
@@ -336,30 +316,61 @@ class ORBStrategyManager:
             except: pass
 
         if sl_price == 0 or sl_price >= entry_est:
-            sl_price = entry_est * 0.90 # 10% SL fallback
+            sl_price = entry_est * 0.90 
 
         risk_points = entry_est - sl_price
         if risk_points < 5: risk_points = 5 
         
-        target_1 = entry_est + risk_points       
-        target_2 = entry_est + (3 * risk_points) 
+        # --- NEW: Build Targets from Legs Configuration ---
+        custom_targets = []
+        t_controls = []
         
-        total_qty = self.lots * self.lot_size
-        half_qty = int(total_qty / 2)
+        total_quantity_lots = 0
         
-        t_controls = [
-            {'enabled': True, 'lots': half_qty, 'trail_to_entry': True}, 
-            {'enabled': True, 'lots': 1000, 'trail_to_entry': False},    
-            {'enabled': False, 'lots': 0, 'trail_to_entry': False}
-        ]
+        # Iterate up to 3 legs
+        for leg in self.legs_config:
+            lots = leg.get('lots', 0)
+            if lots <= 0:
+                # Add placeholder if needed to maintain list size of 3, or just skip
+                custom_targets.append(0)
+                t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
+                continue
+                
+            total_quantity_lots += lots
+            ratio = leg.get('ratio', 1.0)
+            trail = leg.get('trail', False)
+            
+            target_price = entry_est + (risk_points * ratio)
+            target_price = round(target_price, 2)
+            
+            # Convert lot count to actual quantity for trade_manager
+            qty_for_leg = lots * self.lot_size
+            
+            custom_targets.append(target_price)
+            t_controls.append({
+                'enabled': True, 
+                'lots': qty_for_leg, 
+                'trail_to_entry': trail
+            })
+
+        # Ensure lists are length 3 (Trade Manager Expectation)
+        while len(custom_targets) < 3:
+            custom_targets.append(0)
+            t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
+
+        full_qty = total_quantity_lots * self.lot_size
         
+        if full_qty <= 0:
+            print("❌ [ORB] Execution Error: Total Quantity is 0.")
+            return
+
         res = trade_manager.create_trade_direct(
             self.kite,
             mode=self.mode, 
             specific_symbol=symbol_name,
-            quantity=total_qty,
+            quantity=full_qty,
             sl_points=(entry_est - sl_price), 
-            custom_targets=[target_1, target_2, 0],
+            custom_targets=custom_targets,
             order_type="MARKET",
             target_controls=t_controls,
             trailing_sl=0, 
@@ -373,12 +384,11 @@ class ORBStrategyManager:
             self.current_trade_id = res['trade']['id']
             self.last_trade_side = trade_type
             
-            # Update Counters
             if trade_type == "CE": self.ce_trades += 1
             else: self.pe_trades += 1
             
             self.signal_state = "NONE"
-            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id} | Qty: {total_qty}")
+            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id} | Qty: {full_qty} | Legs: {total_quantity_lots} Lots")
         else:
             print(f"❌ [ORB] Trade Failed: {res['message']}")
             self.signal_state = "NONE"

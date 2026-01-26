@@ -283,10 +283,10 @@ class ORBStrategyManager:
                 res = replay_engine.import_past_trade(
                     self.kite,
                     symbol=sim_symbol,
-                    entry_time=entry_time_str,
+                    entry_dt_str=entry_time_str, # <--- FIXED PARAMETER NAME HERE
                     qty=total_qty,
-                    price=entry_est,
-                    sl=sl_price,
+                    entry_price=entry_est,
+                    sl_price=sl_price,
                     targets=custom_targets,
                     trailing_sl=self.trailing_sl_pts,
                     sl_to_entry=self.sl_to_entry_mode,

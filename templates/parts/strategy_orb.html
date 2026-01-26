@@ -13,6 +13,24 @@
                         <h6 class="fw-bold text-dark">Logic Overview</h6>
                         <p class="mb-2">The 5-Min ORB (Open Range Breakout) monitors the NIFTY Spot range from 09:15 to 09:20. It takes a trade when a 5-min candle closes outside this range, confirmed by Futures Volume.</p>
                         
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="fw-bold text-dark mt-2">General Settings</h6>
+                                <ul class="mb-1 ps-3">
+                                    <li><b>Mode:</b> PAPER (Virtual), LIVE (Real), SHADOW (Live Monitor).</li>
+                                    <li><b>Dir:</b> Direction Filter (BOTH, CE Only, PE Only).</li>
+                                    <li><b>Stop:</b> No new trades after this time.</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="fw-bold text-dark mt-2">Re-Entry Logic</h6>
+                                <ul class="mb-1 ps-3">
+                                    <li><b>Re-Entry (SL):</b> If SL hit, retry same side? (Max 2 trades/side).</li>
+                                    <li><b>Re-Entry (Opp):</b> If SL hit, allow reverse trade? (Only if Dir=BOTH).</li>
+                                </ul>
+                            </div>
+                        </div>
+
                         <h6 class="fw-bold text-dark mt-3">Target Configuration</h6>
                         <ul class="mb-1 ps-3">
                             <li><b>Active:</b> Check to enable this Target Leg.</li>
@@ -57,7 +75,7 @@
                     
                     <div class="col-6 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Mode</span>
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2" data-bs-toggle="tooltip" title="PAPER: Virtual | LIVE: Real Exec | SHADOW: Live Logic/Paper Exec">Mode</span>
                             <select class="form-select fw-bold border-0" id="orb_mode_input" style="font-size: 0.8rem;">
                                 <option value="PAPER" selected>📄 PAPER</option>
                                 <option value="LIVE">🔴 LIVE</option>
@@ -68,7 +86,7 @@
 
                     <div class="col-6 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Dir</span>
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2" data-bs-toggle="tooltip" title="Trade Direction: Both Sides, Calls Only, or Puts Only">Dir</span>
                             <select class="form-select fw-bold border-0" id="orb_direction" style="font-size: 0.8rem;">
                                 <option value="BOTH" selected>BOTH</option>
                                 <option value="CE">CE Only</option>
@@ -79,7 +97,7 @@
 
                     <div class="col-12 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Stop</span>
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2" data-bs-toggle="tooltip" title="No new signals will be taken after this time">Stop</span>
                             <input type="time" id="orb_cutoff" class="form-control fw-bold border-0" value="13:00" style="font-size: 0.9rem;">
                         </div>
                     </div>
@@ -89,9 +107,9 @@
                             <div class="d-flex align-items-center gap-2 flex-grow-1">
                                 <div class="form-check form-switch m-0">
                                     <input class="form-check-input" type="checkbox" id="orb_reentry_same_sl">
-                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl" style="font-size: 0.75rem;">Re-Entry (SL)</label>
+                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl" style="font-size: 0.75rem;" data-bs-toggle="tooltip" title="If SL hits, allow re-entry on SAME side? (Max 2 trades/side)">Re-Entry (SL)</label>
                                 </div>
-                                <select class="form-select form-select-sm border-0 bg-light fw-bold py-0" id="orb_reentry_same_filter" style="width: 70px; font-size: 0.7rem; height: 22px;">
+                                <select class="form-select form-select-sm border-0 bg-light fw-bold py-0" id="orb_reentry_same_filter" style="width: 70px; font-size: 0.7rem; height: 22px;" data-bs-toggle="tooltip" title="Filter Re-Entry Side">
                                     <option value="BOTH">BOTH</option>
                                     <option value="CE">CE</option>
                                     <option value="PE">PE</option>
@@ -100,7 +118,7 @@
 
                             <div class="form-check form-switch m-0 border-start ps-3 flex-grow-1">
                                 <input class="form-check-input" type="checkbox" id="orb_reentry_opposite">
-                                <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite" style="font-size: 0.75rem;">Re-Entry (Opp)</label>
+                                <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite" style="font-size: 0.75rem;" data-bs-toggle="tooltip" title="If SL hits, allow REVERSE trade? (Only if Dir=BOTH)">Re-Entry (Opp)</label>
                             </div>
                         </div>
                     </div>

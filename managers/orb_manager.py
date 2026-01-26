@@ -161,14 +161,17 @@ class ORBStrategyManager:
                     time.sleep(1)
                     continue
 
-                # --- 4. Reversal Time Filter ---
-                if self.sl_hit_count > 0:
-                    if curr_time >= datetime.time(13, 0):
-                        if not self.is_done_for_day:
-                            print("🛑 [ORB] SL Hit & Time > 1:00 PM. No Reversals allowed.")
-                            self.is_done_for_day = True
-                        continue
-
+# --- 4. Universal Time Cutoff ---
+# Applies to EVERYONE. No new trades after 1:00 PM.
+if curr_time >= datetime.time(13, 0):
+    if not self.is_done_for_day:
+        print("🛑 [ORB] Time > 1:00 PM. Hard Cutoff Reached. No new trades.")
+        self.is_done_for_day = True
+        self.signal_state = "NONE" # Reset any pending signals
+    
+    # Skip the rest of the loop (Signals/Triggers)
+    time.sleep(60)
+    continue
                 # --- 5. Signal Generation ---
                 self._check_signals()
 

@@ -19,57 +19,57 @@ class ORBStrategyManager:
         
         # --- Strategy Constants ---
         self.timeframe = "5minute"
-        self.nifty_spot_token = 256265 # NSE:NIFTY 50
-        
-        # --- Strategy Settings ---
+        self.nifty_spot_token = 256265 
         self.lot_size = 50 
         self.mode = "PAPER"
         
-        # Target/Leg Configuration
-        # Default: Leg 1 (1 Lot, 1:1, Trail), Leg 2 (1 Lot, 1:2, No Trail)
-        self.legs_config = [
-            {'lots': 1, 'ratio': 1.0, 'trail': True},
-            {'lots': 1, 'ratio': 2.0, 'trail': False},
-            {'lots': 0, 'ratio': 3.0, 'trail': False}
-        ]
-        
-        # 1. Global Filters
+        # --- Config State ---
+        self.legs_config = [] # [{'active': T, 'lots': 1, 'full': F, 'ratio': 1.0, 'trail': T}, ...]
         self.target_direction = "BOTH" 
         self.cutoff_time = datetime.time(13, 0) 
         
-        # 2. Re-entry Logic Controls
+        # Re-entry
         self.reentry_same_sl = False      
         self.reentry_same_filter = "BOTH" 
         self.reentry_opposite = False     
         
-        # --- Strategy State ---
+        # --- Risk Management Settings ---
+        self.max_daily_loss = 0
+        self.trailing_sl_pts = 0
+        self.sl_to_entry_mode = 0
+        self.profit_active = 0
+        self.profit_lock_min = 0
+        self.profit_trail_step = 0
+        
+        # --- Strategy Session State ---
+        self.session_pnl = 0.0
+        self.profit_lock_level = -999999 # Virtual floor for profit locking
+        self.is_profit_locked = False
+        
         self.range_high = 0
         self.range_low = 0
         self.signal_state = "NONE" 
         self.trigger_level = 0
         self.signal_candle_time = None 
         
-        # Trade Management State
         self.trade_active = False
         self.current_trade_id = None
         
-        # Execution History
         self.ce_trades = 0
         self.pe_trades = 0
         self.last_trade_side = None 
         self.last_trade_status = None 
         self.is_done_for_day = False
+        self.stop_reason = ""
         
         self.nifty_fut_token = None
 
     def start(self, mode="PAPER", direction="BOTH", cutoff_str="13:00", 
-              re_sl=False, re_sl_side="BOTH", re_opp=False, legs_config=None):
-        """
-        Starts strategy with advanced re-entry parameters and Multi-Leg support.
-        legs_config: List of dicts [{'lots': 1, 'ratio': 1.5, 'trail': True}, ...]
-        """
+              re_sl=False, re_sl_side="BOTH", re_opp=False, legs_config=None,
+              max_loss=0, trail_pts=0, sl_entry=0, 
+              p_active=0, p_min=0, p_trail=0):
+        
         if not self.active:
-            # 1. Fetch Dynamic Lot Size
             try:
                 det = smart_trader.get_symbol_details(self.kite, "NIFTY")
                 fetched_lot = int(det.get('lot_size', 0))
@@ -79,45 +79,49 @@ class ORBStrategyManager:
             self.mode = mode.upper()
             self.target_direction = direction.upper()
             
-            # 2. Parse Legs
             if legs_config and isinstance(legs_config, list):
                 self.legs_config = legs_config
+            else:
+                self.legs_config = [{'active': True, 'lots': 1, 'ratio': 1.0, 'trail': True}]
             
-            # Calculate total lots for display/logging
-            total_lots = sum([leg.get('lots', 0) for leg in self.legs_config])
-            if total_lots < 1:
-                print("⚠️ [ORB] Warning: Total Lots is 0. Defaulting to 1 lot.")
-                self.legs_config[0]['lots'] = 1
-
             try:
                 t_parts = cutoff_str.split(':')
                 self.cutoff_time = datetime.time(int(t_parts[0]), int(t_parts[1]))
             except:
                 self.cutoff_time = datetime.time(13, 0)
                 
-            # 3. New Re-entry Settings
             self.reentry_same_sl = bool(re_sl)
             self.reentry_same_filter = str(re_sl_side).upper()
-            
-            # Force Disable Opposite if Direction is NOT Both
             if self.target_direction != "BOTH":
                 self.reentry_opposite = False
             else:
                 self.reentry_opposite = bool(re_opp)
 
-            # 4. Reset State
+            # Store Risk Params
+            self.max_daily_loss = abs(float(max_loss))
+            self.trailing_sl_pts = float(trail_pts)
+            self.sl_to_entry_mode = int(sl_entry)
+            self.profit_active = float(p_active)
+            self.profit_lock_min = float(p_min)
+            self.profit_trail_step = float(p_trail)
+
+            # Reset Session State
             self.is_done_for_day = False
+            self.stop_reason = ""
             self.ce_trades = 0
             self.pe_trades = 0
             self.last_trade_side = None
             self.last_trade_status = None
             self.signal_state = "NONE"
             self.trade_active = False
+            self.session_pnl = 0.0
+            self.profit_lock_level = -999999
+            self.is_profit_locked = False
 
             self.active = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
-            print(f"🚀 [ORB] Started | Mode:{self.mode} | Lots:{total_lots} | Legs:{len(self.legs_config)}")
+            print(f"🚀 [ORB] Started | Mode:{self.mode} | MaxLoss:{self.max_daily_loss}")
 
     def stop(self):
         self.active = False
@@ -164,9 +168,47 @@ class ORBStrategyManager:
                     if not self.is_done_for_day:
                         print(f"⏰ [ORB] Cutoff ({self.cutoff_time}) Reached. Done for Day.")
                         self.is_done_for_day = True
+                        self.stop_reason = "CUTOFF_TIME"
                         self.signal_state = "NONE"
                     time.sleep(60)
                     continue
+                
+                # --- SESSION PNL & RISK CHECKS ---
+                # Check Max Daily Loss
+                if self.max_daily_loss > 0 and self.session_pnl <= -self.max_daily_loss:
+                    if not self.is_done_for_day:
+                        print(f"🛑 [ORB] Max Daily Loss Hit: {self.session_pnl}")
+                        self.is_done_for_day = True
+                        self.stop_reason = "MAX_LOSS_HIT"
+                        self.signal_state = "NONE"
+                    time.sleep(60)
+                    continue
+
+                # Check Profit Locking (If trade not active, we lock realized PnL)
+                if self.profit_active > 0 and not self.trade_active:
+                     if self.session_pnl >= self.profit_active:
+                         # We are in profit zone. 
+                         # Simple logic: If we dip below calculated floor, stop.
+                         if not self.is_profit_locked:
+                             self.is_profit_locked = True
+                             self.profit_lock_level = self.profit_lock_min
+                             print(f"🔒 [ORB] Profit Locked Activated. Floor: {self.profit_lock_level}")
+                         
+                         # Trail Logic
+                         if self.profit_trail_step > 0:
+                             diff = self.session_pnl - self.profit_active
+                             steps = int(diff / self.profit_trail_step)
+                             new_floor = self.profit_lock_min + (steps * self.profit_trail_step)
+                             if new_floor > self.profit_lock_level:
+                                 self.profit_lock_level = new_floor
+                                 print(f"📈 [ORB] Profit Floor Trailed to: {self.profit_lock_level}")
+
+                     # Check Breach
+                     if self.is_profit_locked and self.session_pnl < self.profit_lock_level:
+                         print(f"🛑 [ORB] Profit Floor Breached. Stopping.")
+                         self.is_done_for_day = True
+                         self.stop_reason = "PROFIT_LOCK_BREACH"
+                         continue
 
                 if curr_time < datetime.time(9, 20):
                     time.sleep(5)
@@ -217,21 +259,15 @@ class ORBStrategyManager:
         is_same_side = (side == self.last_trade_side)
         
         if is_same_side:
-            if not self.reentry_same_sl: 
-                return False
-            if self.last_trade_status != "SL_HIT":
-                return False
-            if self.reentry_same_filter != "BOTH" and self.reentry_same_filter != side:
-                return False
+            if not self.reentry_same_sl: return False
+            if self.last_trade_status != "SL_HIT": return False
+            if self.reentry_same_filter != "BOTH" and self.reentry_same_filter != side: return False
             current_side_count = self.ce_trades if side == "CE" else self.pe_trades
-            if current_side_count >= 2:
-                return False
+            if current_side_count >= 2: return False
             return True
         else:
-            if self.reentry_opposite:
-                return True
-            else:
-                return False
+            if self.reentry_opposite: return True
+            else: return False
 
         return False
 
@@ -304,7 +340,6 @@ class ORBStrategyManager:
         symbol_name = smart_trader.get_exact_symbol("NIFTY", current_expiry, atm_strike, trade_type)
         if not symbol_name: return
 
-        # SL Calculation
         sl_price = 0
         entry_est = smart_trader.get_ltp(self.kite, symbol_name)
         opt_token = smart_trader.get_instrument_token(symbol_name, "NFO")
@@ -321,30 +356,28 @@ class ORBStrategyManager:
         risk_points = entry_est - sl_price
         if risk_points < 5: risk_points = 5 
         
-        # --- NEW: Build Targets from Legs Configuration ---
+        # --- NEW: Build Targets from Full Config ---
         custom_targets = []
         t_controls = []
-        
         total_quantity_lots = 0
         
-        # Iterate up to 3 legs
         for leg in self.legs_config:
-            lots = leg.get('lots', 0)
-            if lots <= 0:
-                # Add placeholder if needed to maintain list size of 3, or just skip
+            # Check Active
+            if not leg.get('active', False):
                 custom_targets.append(0)
                 t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 continue
-                
-            total_quantity_lots += lots
+
+            lots = leg.get('lots', 0)
+            is_full = leg.get('full', False)
             ratio = leg.get('ratio', 1.0)
             trail = leg.get('trail', False)
             
             target_price = entry_est + (risk_points * ratio)
             target_price = round(target_price, 2)
             
-            # Convert lot count to actual quantity for trade_manager
-            qty_for_leg = lots * self.lot_size
+            qty_for_leg = 1000 if is_full else (lots * self.lot_size)
+            if not is_full: total_quantity_lots += lots
             
             custom_targets.append(target_price)
             t_controls.append({
@@ -353,12 +386,20 @@ class ORBStrategyManager:
                 'trail_to_entry': trail
             })
 
-        # Ensure lists are length 3 (Trade Manager Expectation)
         while len(custom_targets) < 3:
             custom_targets.append(0)
             t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
 
-        full_qty = total_quantity_lots * self.lot_size
+        # Calculate Total Qty (Only summing specific lots, excluding 'Full' which handles remainder)
+        # Note: If 'Full' is used, trade_manager handles logic. But we need a base quantity to place order.
+        # Simple Logic: If Full is present, we assume user input total lots somewhere? 
+        # Actually, standard logic: Lots should be explicit for Entry. 'Full' is for Exit.
+        # We need sum of all lots for Entry. 
+        # For 'Full' leg, user must still specify Lots for ENTRY, 'Full' only applies to EXIT logic.
+        # But UI disables lots if Full is checked? No, let's sum all lots specified in UI.
+        
+        final_entry_lots = sum([leg.get('lots', 0) for leg in self.legs_config if leg.get('active', False)])
+        full_qty = final_entry_lots * self.lot_size
         
         if full_qty <= 0:
             print("❌ [ORB] Execution Error: Total Quantity is 0.")
@@ -373,8 +414,8 @@ class ORBStrategyManager:
             custom_targets=custom_targets,
             order_type="MARKET",
             target_controls=t_controls,
-            trailing_sl=0, 
-            sl_to_entry=0,
+            trailing_sl=self.trailing_sl_pts, # Pass Risk Param
+            sl_to_entry=self.sl_to_entry_mode, # Pass Risk Param
             exit_multiplier=1,
             target_channels=['main']
         )
@@ -388,7 +429,7 @@ class ORBStrategyManager:
             else: self.pe_trades += 1
             
             self.signal_state = "NONE"
-            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id} | Qty: {full_qty} | Legs: {total_quantity_lots} Lots")
+            print(f"✅ [ORB] Trade Executed. ID: {self.current_trade_id} | Qty: {full_qty}")
         else:
             print(f"❌ [ORB] Trade Failed: {res['message']}")
             self.signal_state = "NONE"
@@ -397,14 +438,26 @@ class ORBStrategyManager:
         trades = persistence.load_trades()
         trade = next((t for t in trades if t['id'] == self.current_trade_id), None)
         
+        # If not in active, check history (it closed)
         if not trade:
             history = persistence.load_history()
             trade = next((t for t in history if t['id'] == self.current_trade_id), None)
             
         if trade:
+            # PnL Update (Approximate)
+            if 'pnl' in trade:
+                # If closed, pnl is final. If active, it's unrealized.
+                pass 
+                
             status = trade.get('status')
             if status in ['SL_HIT', 'TARGET_HIT', 'MANUAL_EXIT', 'TIME_EXIT', 'PANIC_EXIT']:
                 print(f"ℹ️ [ORB] Trade Finished: {status}")
+                
+                # Update Session PnL
+                realized_pnl = trade.get('pnl', 0)
+                self.session_pnl += realized_pnl
+                print(f"💰 [ORB] Session PnL: {self.session_pnl}")
+                
                 self.trade_active = False
                 self.current_trade_id = None
                 self.last_trade_status = status 

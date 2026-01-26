@@ -26,6 +26,10 @@ class ORBStrategyManager:
         self.lots = 2      # Default 2 lots (Multiple of 2)
         self.mode = "PAPER" # Default Mode
         
+        # --- New User Controls ---
+        self.target_direction = "BOTH" # BOTH, CE, PE
+        self.cutoff_time = datetime.time(13, 0) # Default 1:00 PM
+        
         # --- Strategy State ---
         self.range_high = 0
         self.range_low = 0
@@ -45,8 +49,8 @@ class ORBStrategyManager:
         # Cached Tokens
         self.nifty_fut_token = None
 
-    def start(self, lots=2, mode="PAPER"):
-        """Starts the strategy with specific lot count and mode"""
+    def start(self, lots=2, mode="PAPER", direction="BOTH", cutoff_str="13:00"):
+        """Starts the strategy with specific lot count, mode, direction, and time limit"""
         if not self.active:
             # 1. Fetch Dynamic Lot Size
             try:
@@ -70,12 +74,23 @@ class ORBStrategyManager:
                 print(f"⚠️ [ORB] Odd lots detected. Adjusted to {self.lots} (Multiple of 2 required)")
 
             self.mode = mode.upper()
+            
+            # 3. Set Direction & Cutoff
+            self.target_direction = direction.upper()
+            try:
+                # Parse string "HH:MM" to datetime.time
+                t_parts = cutoff_str.split(':')
+                self.cutoff_time = datetime.time(int(t_parts[0]), int(t_parts[1]))
+            except:
+                print(f"⚠️ [ORB] Invalid time format '{cutoff_str}', defaulting to 13:00")
+                self.cutoff_time = datetime.time(13, 0)
+
             total_qty = self.lots * self.lot_size
             
             self.active = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
-            print(f"🚀 [ORB] Strategy Started | Mode: {self.mode} | Lots: {self.lots} | Qty: {total_qty}")
+            print(f"🚀 [ORB] Strategy Started | Mode: {self.mode} | Dir: {self.target_direction} | Cutoff: {self.cutoff_time} | Qty: {total_qty}")
 
     def stop(self):
         self.active = False
@@ -123,12 +138,15 @@ class ORBStrategyManager:
                 now = datetime.datetime.now(IST)
                 curr_time = now.time()
 
-                # --- 1. EOD Force Close (15:15) ---
-                if curr_time >= datetime.time(15, 15):
+                # --- 1. Universal Time Cutoff (User Defined) ---
+                # This applies regardless of profit/loss or trade history
+                if curr_time >= self.cutoff_time:
                     if not self.is_done_for_day:
-                        print("⏰ [ORB] EOD Reached. Stopping Strategy.")
+                        print(f"⏰ [ORB] Cutoff Time ({self.cutoff_time}) Reached. Stopping Strategy.")
                         self.is_done_for_day = True
                         self.signal_state = "NONE"
+                    
+                    # Wait 1 minute to avoid CPU spin, then re-check
                     time.sleep(60)
                     continue
 
@@ -161,21 +179,11 @@ class ORBStrategyManager:
                     time.sleep(1)
                     continue
 
-# --- 4. Universal Time Cutoff ---
-# Applies to EVERYONE. No new trades after 1:00 PM.
-if curr_time >= datetime.time(13, 0):
-    if not self.is_done_for_day:
-        print("🛑 [ORB] Time > 1:00 PM. Hard Cutoff Reached. No new trades.")
-        self.is_done_for_day = True
-        self.signal_state = "NONE" # Reset any pending signals
-    
-    # Skip the rest of the loop (Signals/Triggers)
-    time.sleep(60)
-    continue
-                # --- 5. Signal Generation ---
+                # --- 4. Signal Generation ---
+                # Note: Direction filtering happens inside _check_signals
                 self._check_signals()
 
-                # --- 6. Entry Trigger ---
+                # --- 5. Entry Trigger ---
                 if self.signal_state != "NONE":
                     self._check_trigger()
 
@@ -203,8 +211,8 @@ if curr_time >= datetime.time(13, 0):
         candle_low = sig_candle_spot['low']
         candle_time = sig_candle_spot['date']
 
-        # Call Signal
-        if close_price > self.range_high:
+        # Call Signal (ONLY if Direction is BOTH or CE)
+        if close_price > self.range_high and self.target_direction in ["BOTH", "CE"]:
             if self.last_trade_side == "CE" and self.sl_hit_count > 0: return 
             if volume_ok:
                 if self.signal_state != "WAIT_BUY":
@@ -217,8 +225,8 @@ if curr_time >= datetime.time(13, 0):
                     print("⚠️ [ORB] Switch Rule: Sell Setup Invalidated. Resetting.")
                     self.signal_state = "NONE"
 
-        # Put Signal
-        elif close_price < self.range_low:
+        # Put Signal (ONLY if Direction is BOTH or PE)
+        elif close_price < self.range_low and self.target_direction in ["BOTH", "PE"]:
             if self.last_trade_side == "PE" and self.sl_hit_count > 0: return
             if volume_ok:
                 if self.signal_state != "WAIT_SELL":

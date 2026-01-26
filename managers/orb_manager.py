@@ -148,6 +148,7 @@ class ORBStrategyManager:
         1. Wait for Candle Close > Range (Signal)
         2. Wait for Subsequent High/Low Break (Trigger)
         3. EXACT Target/Quantity Logic as Live Bot
+        4. EXACT SL Calculation (Signal Candle Low) as Live Bot
         """
         try:
             # Try to fetch Lot Size if not set
@@ -184,6 +185,7 @@ class ORBStrategyManager:
             trade_found = False
             trade_type = None
             trade_candle = None # The candle where TRIGGER happened (Entry Time)
+            signal_time_found = None # The candle where SIGNAL happened (For SL)
             
             # Start from 09:20 candle (index 1)
             for i in range(1, len(df)):
@@ -211,12 +213,14 @@ class ORBStrategyManager:
                         trade_found = True; trade_type = "CE"; trade_candle = c; break
                     if close < r_low: 
                         signal_state = "NONE" # Reset if Close crosses opposite range
+                        signal_time_found = None
                         
                 elif signal_state == "WAIT_SELL":
                     if low < trigger_level:
                         trade_found = True; trade_type = "PE"; trade_candle = c; break
                     if close > r_high: 
                         signal_state = "NONE"
+                        signal_time_found = None
 
                 # B. Look for New Signals (if not triggered yet)
                 if signal_state == "NONE":
@@ -224,11 +228,13 @@ class ORBStrategyManager:
                         if self.target_direction in ["BOTH", "CE"]:
                             signal_state = "WAIT_BUY"
                             trigger_level = high
+                            signal_time_found = c_dt # CAPTURE SIGNAL TIME
                             
                     elif close < r_low:
                         if self.target_direction in ["BOTH", "PE"]:
                             signal_state = "WAIT_SELL"
                             trigger_level = low
+                            signal_time_found = c_dt # CAPTURE SIGNAL TIME
             
             if not trade_found:
                 return {"status": "info", "message": f"No ORB Trigger found on {date_str} (Range: {r_high}-{r_low})"}
@@ -282,10 +288,10 @@ class ORBStrategyManager:
                 if not opt_token:
                     return {"status": "error", "message": "Active Token not found for Symbol. Cannot Execute."}
                 
-                # Fetch candle at ENTRY time
+                # Fetch candle at ENTRY time (For Entry Price)
                 s_time = trade_candle['date']
                 
-                # Fix Timezone Info
+                # Fix Timezone Info for Entry Time
                 if isinstance(s_time, str):
                     try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
                     except: 
@@ -304,13 +310,32 @@ class ORBStrategyManager:
                 
                 opt_candle = opt_data[0]
                 entry_est = float(opt_candle['close']) 
-                sl_price = float(opt_candle['low'])    
+                
+                # --- FIX: FETCH SL FROM SIGNAL TIME (Match Live Bot) ---
+                sl_price = 0
+                if signal_time_found:
+                    try:
+                        # Fix Timezone for Signal Time
+                        sig_time = signal_time_found
+                        if hasattr(sig_time, 'replace'): sig_time = sig_time.replace(tzinfo=None)
+                        
+                        sig_from = sig_time.strftime('%Y-%m-%d %H:%M:%S')
+                        sig_to = (sig_time + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        sig_data = self.kite.historical_data(opt_token, sig_from, sig_to, self.timeframe)
+                        if sig_data:
+                            sl_price = float(sig_data[0]['low'])
+                    except: pass
+                
+                # Fallback Logic (Same as Live)
+                if sl_price == 0 or sl_price >= entry_est:
+                    sl_price = entry_est * 0.90    
                 
                 risk_points = entry_est - sl_price
                 if risk_points < 5: risk_points = 5
                 
                 # B. Build Target Controls & Custom Targets
-                # --- FIXED: PASS LOT *COUNT* TO CONTROLS, NOT QUANTITY ---
+                # --- EXACT MATCH OF LIVE BOT LOGIC ---
                 custom_targets = []
                 t_controls = []
                 

@@ -26,7 +26,7 @@ class ORBStrategyManager:
         self.lots = 2      # Default 2 lots (Multiple of 2)
         self.mode = "PAPER" # Default Mode
         
-        # --- New User Controls ---
+        # --- User Controls ---
         self.target_direction = "BOTH" # BOTH, CE, PE
         self.cutoff_time = datetime.time(13, 0) # Default 1:00 PM
         
@@ -84,6 +84,13 @@ class ORBStrategyManager:
                 print(f"⚠️ [ORB] Invalid time format '{cutoff_str}', defaulting to 13:00")
                 self.cutoff_time = datetime.time(13, 0)
 
+            # --- RESET STATE ON START ---
+            self.is_done_for_day = False
+            self.sl_hit_count = 0
+            self.last_trade_side = None
+            self.signal_state = "NONE"
+            # ----------------------------
+
             total_qty = self.lots * self.lot_size
             
             self.active = True
@@ -134,6 +141,11 @@ class ORBStrategyManager:
 
         while self.active:
             try:
+                # --- 0. DONE FOR DAY CHECK ---
+                if self.is_done_for_day:
+                    time.sleep(5)
+                    continue
+
                 now = datetime.datetime.now(IST)
                 curr_time = now.time()
 
@@ -208,12 +220,6 @@ class ORBStrategyManager:
 
         # Call Signal
         if close_price > self.range_high and self.target_direction in ["BOTH", "CE"]:
-            
-            # --- STRICT RE-ENTRY BLOCK ---
-            # If we traded CE before (Profit OR Loss), do not allow CE again.
-            if self.last_trade_side == "CE": return 
-            # -----------------------------
-
             if volume_ok:
                 if self.signal_state != "WAIT_BUY":
                     print(f"🔔 [ORB] Call Signal (Volume OK). Waiting for break of {candle_high}")
@@ -227,12 +233,6 @@ class ORBStrategyManager:
 
         # Put Signal
         elif close_price < self.range_low and self.target_direction in ["BOTH", "PE"]:
-            
-            # --- STRICT RE-ENTRY BLOCK ---
-            # If we traded PE before (Profit OR Loss), do not allow PE again.
-            if self.last_trade_side == "PE": return
-            # -----------------------------
-
             if volume_ok:
                 if self.signal_state != "WAIT_SELL":
                     print(f"🔔 [ORB] Put Signal (Volume OK). Waiting for break of {candle_low}")
@@ -344,5 +344,11 @@ class ORBStrategyManager:
                 print(f"ℹ️ [ORB] Trade Finished: {status}")
                 self.trade_active = False
                 self.current_trade_id = None
+                
+                # --- BLOCK ALL RE-ENTRIES (One Trade Per Day) ---
+                print("🛑 [ORB] Trade Completed. Blocking all re-entries (One Trade Per Day).")
+                self.is_done_for_day = True
+                self.signal_state = "NONE"
+                
                 if status == 'SL_HIT':
                     self.sl_hit_count += 1

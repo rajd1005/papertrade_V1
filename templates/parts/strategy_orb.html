@@ -1,5 +1,6 @@
 <div class="card shadow-sm border-0 bg-light mb-3">
-    <div class="card-body p-2 p-md-3"> <div class="row g-2 g-md-3 align-items-center">
+    <div class="card-body p-2 p-md-3"> 
+        <div class="row g-2 g-md-3 align-items-center">
             
             <div class="col-12 col-md-3">
                 <div class="d-flex align-items-center justify-content-between justify-content-md-start gap-3 h-100">
@@ -20,7 +21,7 @@
             <div class="col-12 col-md-9">
                 <div class="row g-2">
                     
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
                             <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Mode</span>
                             <select class="form-select fw-bold border-0" id="orb_mode_input" style="font-size: 0.8rem;">
@@ -31,15 +32,7 @@
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-3">
-                        <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Lots</span>
-                            <input type="number" id="orb_lots_input" class="form-control text-center fw-bold border-0" 
-                                   value="2" min="2" step="2" onchange="updateOrbCalc()" style="font-size: 0.9rem;">
-                        </div>
-                    </div>
-
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
                             <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Dir</span>
                             <select class="form-select fw-bold border-0" id="orb_direction" style="font-size: 0.8rem;">
@@ -50,7 +43,7 @@
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-3">
+                    <div class="col-12 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
                             <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Stop</span>
                             <input type="time" id="orb_cutoff" class="form-control fw-bold border-0" value="13:00" style="font-size: 0.9rem;">
@@ -58,8 +51,44 @@
                     </div>
 
                     <div class="col-12">
-                        <div class="bg-white rounded p-2 shadow-sm d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="bg-white rounded p-2 shadow-sm">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="fw-bold text-muted" style="font-size: 0.7rem;">TARGET CONFIGURATION (Lots | Risk:Reward | Trail)</small>
+                                <small class="fw-bold text-primary" style="font-size: 0.7rem;">Total Lots: <span id="orb_calc_total">0</span></small>
+                            </div>
                             
+                            <div class="row g-1 mb-1 text-center text-muted fst-italic" style="font-size: 0.65rem;">
+                                <div class="col-1">#</div>
+                                <div class="col-4">Lots</div>
+                                <div class="col-4">R:R Ratio</div>
+                                <div class="col-3">Trail Entry</div>
+                            </div>
+
+                            <div class="row g-1 mb-1 align-items-center">
+                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">1</span></div>
+                                <div class="col-4"><input type="number" id="orb_leg1_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="0"></div>
+                                <div class="col-4"><input type="number" id="orb_leg1_ratio" class="form-control form-control-sm text-center orb-leg-input" value="1.0" step="0.1"></div>
+                                <div class="col-3 text-center"><input type="checkbox" id="orb_leg1_trail" class="form-check-input" checked></div>
+                            </div>
+
+                            <div class="row g-1 mb-1 align-items-center">
+                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">2</span></div>
+                                <div class="col-4"><input type="number" id="orb_leg2_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="0"></div>
+                                <div class="col-4"><input type="number" id="orb_leg2_ratio" class="form-control form-control-sm text-center orb-leg-input" value="2.0" step="0.1"></div>
+                                <div class="col-3 text-center"><input type="checkbox" id="orb_leg2_trail"></div>
+                            </div>
+
+                             <div class="row g-1 align-items-center">
+                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">3</span></div>
+                                <div class="col-4"><input type="number" id="orb_leg3_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="0" min="0"></div>
+                                <div class="col-4"><input type="number" id="orb_leg3_ratio" class="form-control form-control-sm text-center orb-leg-input" value="3.0" step="0.1"></div>
+                                <div class="col-3 text-center"><input type="checkbox" id="orb_leg3_trail"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="bg-white rounded p-2 shadow-sm d-flex flex-wrap align-items-center justify-content-between gap-2">
                             <div class="d-flex align-items-center gap-2 flex-grow-1">
                                 <div class="form-check form-switch m-0">
                                     <input class="form-check-input" type="checkbox" id="orb_reentry_same_sl">

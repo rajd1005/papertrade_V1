@@ -71,8 +71,8 @@ class ORBStrategyManager:
         
         if not self.active:
             try:
-                det = smart_trader.get_symbol_details(self.kite, "NIFTY")
-                fetched_lot = int(det.get('lot_size', 0))
+                # Retrieve active lot size
+                fetched_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
                 if fetched_lot > 0: self.lot_size = fetched_lot
             except: pass
 
@@ -133,17 +133,14 @@ class ORBStrategyManager:
         If auto_execute is True, it imports the trade into the system.
         """
         try:
-            # --- FIX: Force Update Lot Size from Active Contracts ---
+            # FIX: Ensure we have the REAL active lot size
             try:
-                # This fetches details for NIFTY, including FUT lot size
-                det = smart_trader.get_symbol_details(self.kite, "NIFTY")
-                ls = int(det.get('lot_size', 0))
-                if ls > 0: 
-                    self.lot_size = ls
+                real_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
+                if real_lot > 0: 
+                    self.lot_size = real_lot
+                elif self.lot_size <= 0: 
+                    self.lot_size = 50 # Fallback
             except: pass
-            
-            # Ensure valid fallback if API fails
-            if self.lot_size <= 0: self.lot_size = 50 
 
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
             
@@ -202,10 +199,10 @@ class ORBStrategyManager:
                 expiry_str = api_expiry
                 print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
+                # Fallback: Tuesday Calculation
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
-                print(f"⚠️ [ORB] Using Fallback Expiry (Tuesday): {expiry_str}")
             
             # 5. Build Symbol Details
             close_price = float(signal_candle['close'])
@@ -233,6 +230,7 @@ class ORBStrategyManager:
                 # Fetch candle at signal time
                 s_time = signal_candle['date']
                 
+                # FIX: Remove Timezone Info to prevent API Error
                 if isinstance(s_time, str):
                     try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
                     except: 
@@ -270,21 +268,23 @@ class ORBStrategyManager:
                     ratio = leg.get('ratio', 1.0)
                     t_price = round(entry_est + (risk_points * ratio), 2)
                     
-                    # Get user input Lots
                     lots = leg.get('lots', 0)
                     is_full = leg.get('full', False)
                     
-                    # --- FIX: Calculate Quantity using updated Lot Size ---
-                    leg_quantity = lots * self.lot_size
-                    total_qty += leg_quantity
+                    # Ensure lot size is valid
+                    current_lot_size = self.lot_size if self.lot_size > 0 else 50
                     
-                    # Determine Exit Quantity for Control (1000 = All/Full)
-                    exit_qty = 1000 if is_full else leg_quantity
+                    # FIX: Always add Leg lots to Total Qty (even if exit is Full)
+                    leg_qty_total = lots * current_lot_size
+                    total_qty += leg_qty_total
+                    
+                    # Exit Qty logic
+                    exit_qty = 1000 if is_full else leg_qty_total
                     
                     custom_targets.append(t_price)
                     t_controls.append({
                         'enabled': True,
-                        'lots': exit_qty, # Corrected Exit Qty
+                        'lots': exit_qty,
                         'trail_to_entry': leg.get('trail', False)
                     })
                 
@@ -312,7 +312,7 @@ class ORBStrategyManager:
                 
                 return {
                     "status": "success",
-                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nQty: {total_qty} (Lots: {total_qty/self.lot_size})\nEntry: {entry_est}\nTime: {entry_time_str}\n\nCheck Dashboard."
+                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nQty: {total_qty} ({total_qty/self.lot_size} Lots)\nEntry: {entry_est}\nTime: {entry_time_str}\n\nCheck Dashboard."
                 }
 
             return {
@@ -328,6 +328,7 @@ class ORBStrategyManager:
         except Exception as e:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
+    # ... (Rest of file unchanged) ...
     def _get_nifty_futures_token(self):
         try:
             instruments = self.kite.instruments("NFO")
@@ -553,6 +554,7 @@ class ORBStrategyManager:
         # --- NEW: Build Targets from Full Config ---
         custom_targets = []
         t_controls = []
+        total_quantity_lots = 0
         
         for leg in self.legs_config:
             # Check Active
@@ -570,6 +572,7 @@ class ORBStrategyManager:
             target_price = round(target_price, 2)
             
             qty_for_leg = 1000 if is_full else (lots * self.lot_size)
+            if not is_full: total_quantity_lots += lots
             
             custom_targets.append(target_price)
             t_controls.append({
@@ -582,7 +585,7 @@ class ORBStrategyManager:
             custom_targets.append(0)
             t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
 
-        # Calculate Total Qty (Sum all active lots, including 'Full' legs)
+        # Calculate Total Qty
         final_entry_lots = sum([leg.get('lots', 0) for leg in self.legs_config if leg.get('active', False)])
         full_qty = final_entry_lots * self.lot_size
         

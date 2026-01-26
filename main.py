@@ -338,13 +338,23 @@ def api_orb_backtest():
     global orb_bot
     data = request.json
     date = data.get('date')
-    auto_exec = data.get('execute', False) # <-- Read Execute Flag
+    auto_exec = data.get('execute', False) 
     
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
     
     if not date:
         return jsonify({"status": "error", "message": "Date is required"})
+    
+    # --- FIX: Apply Settings from UI Request before Running Backtest ---
+    legs = data.get('legs_config')
+    if legs:
+        orb_bot.legs_config = legs
+        
+    risk = data.get('risk')
+    if risk:
+        orb_bot.trailing_sl_pts = float(risk.get('trail_pts', 0))
+        orb_bot.sl_to_entry_mode = int(risk.get('sl_entry', 0))
         
     result = orb_bot.run_backtest(date, auto_execute=auto_exec)
     return jsonify(result)

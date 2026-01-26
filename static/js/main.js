@@ -75,7 +75,6 @@ $(document).ready(function() {
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
     $('#hist_date').val(localDate.toISOString().slice(0,10));
-    
     // Default Backtest Date to Today
     if($('#orb_backtest_date').length) $('#orb_backtest_date').val(localDate.toISOString().slice(0,10));
     
@@ -338,22 +337,38 @@ function runOrbBacktest() {
     let originalText = btn.html();
     btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Running...');
     
-    // Auto-Execute is now True
+    // 1. Scrape Current Settings from UI (Same as ToggleOrb)
+    let legs_config = [];
+    for(let i=1; i<=3; i++) {
+        legs_config.push({
+            active: $(`#orb_leg${i}_active`).is(':checked'),
+            lots: parseInt($(`#orb_leg${i}_lots`).val()) || 0,
+            full: $(`#orb_leg${i}_full`).is(':checked'),
+            ratio: parseFloat($(`#orb_leg${i}_ratio`).val()) || 0.0,
+            trail: $(`#orb_leg${i}_trail`).is(':checked')
+        });
+    }
+
+    let risk = {
+        trail_pts: parseFloat($('#orb_trail_pts').val()) || 0,
+        sl_entry: parseInt($('#orb_sl_to_entry').val()) || 0
+    };
+
+    // 2. Send Data with Auto-Execute flag
     $.ajax({
         url: '/api/orb/backtest',
         type: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ 
             date: date,
-            execute: true  // <--- NEW: Trigger Auto-Execute
+            execute: true, // Trigger Auto-Execute
+            legs_config: legs_config, // Pass current settings
+            risk: risk // Pass current risk settings
         }),
         success: function(res) {
-            // Simply show the result message (Success or Warning)
             if(res.status === 'success') {
                 if(window.showFloatingAlert) showFloatingAlert(res.message, 'success');
                 else alert(res.message);
-                
-                // If trade executed, refresh positions table
                 if(typeof updateData === 'function') updateData(); 
             } else {
                 alert(res.message);

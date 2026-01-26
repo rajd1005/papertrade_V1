@@ -204,10 +204,9 @@ def api_status():
 
 @app.route('/api/orb/params')
 def api_orb_params():
-    """Provides status, current lot size, lots, and mode from server"""
+    """Provides status, current lot size, lots, mode, direction, and cutoff from server"""
     ls = 50 
     try:
-        # Fetch fresh lot size
         det = smart_trader.get_symbol_details(kite, "NIFTY")
         ls = int(det.get('lot_size', 50))
     except: pass
@@ -215,17 +214,23 @@ def api_orb_params():
     active = False
     current_lots = 2
     current_mode = "PAPER"
+    current_direction = "BOTH"
+    current_cutoff = "13:00"
     
     if orb_bot:
         active = orb_bot.active
         current_lots = orb_bot.lots
         current_mode = orb_bot.mode
+        current_direction = orb_bot.target_direction
+        current_cutoff = orb_bot.cutoff_time.strftime("%H:%M")
     
     return jsonify({
         "active": active,
         "lot_size": ls,
         "current_lots": current_lots,
-        "current_mode": current_mode
+        "current_mode": current_mode,
+        "current_direction": current_direction,
+        "current_cutoff": current_cutoff
     })
 
 @app.route('/api/orb/toggle', methods=['POST'])
@@ -234,13 +239,15 @@ def api_orb_toggle():
     action = request.json.get('action') # 'start' or 'stop'
     lots = int(request.json.get('lots', 2))
     mode = request.json.get('mode', 'PAPER')
+    direction = request.json.get('direction', 'BOTH')
+    cutoff = request.json.get('cutoff', '13:00')
     
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
         
     if action == 'start':
-        orb_bot.start(lots=lots, mode=mode)
-        return jsonify({"status": "success", "message": f"✅ ORB Started: {mode} | {lots} Lots"})
+        orb_bot.start(lots=lots, mode=mode, direction=direction, cutoff_str=cutoff)
+        return jsonify({"status": "success", "message": f"✅ ORB Started: {mode} | {direction} | Cutoff {cutoff} | {lots} Lots"})
     elif action == 'stop':
         orb_bot.stop()
         return jsonify({"status": "success", "message": "🛑 ORB Stopped"})

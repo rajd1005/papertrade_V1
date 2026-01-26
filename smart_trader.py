@@ -200,11 +200,10 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     
     return {"symbol": clean, "ltp": ltp, "lot_size": lot, "fut_expiries": f_exp, "opt_expiries": o_exp}
 
-# --- NEW FUNCTION: SPECIFIC LOT SIZE FETCHER ---
+# --- NEW: ROBUST ACTIVE LOT SIZE FETCHER ---
 def fetch_active_lot_size(kite, symbol_name):
     """
     Specifically finds the Lot Size for a symbol (like NIFTY) from active NFO contracts.
-    Checks FUT first, then Options.
     """
     global instrument_dump
     if instrument_dump is None or instrument_dump.empty: fetch_instruments(kite)
@@ -288,18 +287,29 @@ def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
         return []
 
 def get_next_weekly_expiry(symbol, from_date):
+    """
+    Finds the nearest weekly expiry from the active instrument list.
+    """
     global instrument_dump
     if instrument_dump is None or instrument_dump.empty: return None
+    
     try:
         clean = get_zerodha_symbol(symbol)
         mask = (instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE', 'FUT']))
-        df = instrument_dump[mask].copy() # Explicit copy
+        
+        # FIX: Explicit copy to avoid SettingWithCopyWarning
+        df = instrument_dump[mask].copy()
+        
         if df.empty: return None
+        
         df['expiry_dt'] = pd.to_datetime(df['expiry'], errors='coerce').dt.date
         future_expiries = df[df['expiry_dt'] >= from_date]['expiry_dt'].unique()
+        
         if len(future_expiries) == 0: return None
+        
         nearest = min(future_expiries)
         return nearest.strftime('%Y-%m-%d')
+        
     except Exception as e:
         print(f"Expiry Fetch Error: {e}")
         return None

@@ -336,14 +336,17 @@ def api_orb_toggle():
 @app.route('/api/orb/backtest', methods=['POST'])
 def api_orb_backtest():
     global orb_bot
-    date = request.json.get('date')
+    data = request.json
+    date = data.get('date')
+    auto_exec = data.get('execute', False) # <-- Read Execute Flag
+    
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
     
     if not date:
         return jsonify({"status": "error", "message": "Date is required"})
         
-    result = orb_bot.run_backtest(date)
+    result = orb_bot.run_backtest(date, auto_execute=auto_exec)
     return jsonify(result)
 
 # -------------------------------------

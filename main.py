@@ -346,7 +346,7 @@ def api_orb_backtest():
     if not date:
         return jsonify({"status": "error", "message": "Date is required"})
     
-    # --- FIX: Apply Settings from UI Request before Running Backtest ---
+    # --- APPLY UI SETTINGS FOR EXECUTION ---
     legs = data.get('legs_config')
     if legs:
         orb_bot.legs_config = legs

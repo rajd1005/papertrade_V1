@@ -213,11 +213,20 @@ def api_status():
 @app.route('/api/orb/params')
 def api_orb_params():
     """Provides status and all advanced config from server"""
-    ls = 50 
+    # FIX: Initialize lot_size to 0, NOT 50.
+    ls = 0 
     try:
-        det = smart_trader.get_symbol_details(kite, "NIFTY")
-        ls = int(det.get('lot_size', 50))
-    except: pass
+        # 1. Attempt to fetch specific active lot size (Prioritize FUT)
+        fetched_ls = smart_trader.fetch_active_lot_size(kite, "NIFTY")
+        if fetched_ls > 0:
+            ls = fetched_ls
+        else:
+            # 2. Fallback to generic details
+            det = smart_trader.get_symbol_details(kite, "NIFTY")
+            if det and det.get('lot_size'):
+                ls = int(det['lot_size'])
+    except: 
+        ls = 0 # Remain 0 if fetch fails (e.g. Offline)
     
     active = False
     current_mode = "PAPER"

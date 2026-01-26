@@ -147,7 +147,7 @@ class ORBStrategyManager:
         MATCHES LIVE BOT LOGIC: 
         1. Wait for Candle Close > Range (Signal)
         2. Wait for Subsequent High/Low Break (Trigger)
-        3. Uses EXACT Target/Quantity configuration as Live Bot
+        3. EXACT Target/Quantity Logic as Live Bot
         """
         try:
             # Try to fetch Lot Size if not set

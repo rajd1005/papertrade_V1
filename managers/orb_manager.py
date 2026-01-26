@@ -20,7 +20,10 @@ class ORBStrategyManager:
         # --- Strategy Constants ---
         self.timeframe = "5minute"
         self.nifty_spot_token = 256265 
-        self.lot_size = 50 
+        
+        # UPDATED: Initialize to 0 to force fetch from Zerodha
+        self.lot_size = 0 
+        
         self.mode = "PAPER"
         
         # --- Config State ---
@@ -70,11 +73,22 @@ class ORBStrategyManager:
               p_active=0, p_min=0, p_trail=0):
         
         if not self.active:
+            # --- UPDATED: Fetch Active Lot Size from Zerodha ---
             try:
-                # Retrieve active lot size
-                fetched_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
-                if fetched_lot > 0: self.lot_size = fetched_lot
-            except: pass
+                # 1. Try getting details from NIFTY index
+                det = smart_trader.get_symbol_details(self.kite, "NIFTY")
+                if det and det.get('lot_size'):
+                    self.lot_size = int(det['lot_size'])
+                
+                # 2. Fallback to active lot fetcher if still 0
+                if self.lot_size == 0:
+                    fetched_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
+                    if fetched_lot > 0: self.lot_size = fetched_lot
+            except Exception as e:
+                print(f"⚠️ [ORB] Error fetching Lot Size: {e}")
+
+            if self.lot_size == 0:
+                print("⚠️ [ORB] Warning: Lot Size is 0. Will attempt to fetch during execution.")
 
             self.mode = mode.upper()
             self.target_direction = direction.upper()
@@ -135,14 +149,15 @@ class ORBStrategyManager:
         2. Wait for Subsequent High/Low Break (Trigger)
         """
         try:
-            # FIX: Ensure we have the REAL active lot size
-            try:
-                real_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
-                if real_lot > 0: 
-                    self.lot_size = real_lot
-                elif self.lot_size <= 0: 
-                    self.lot_size = 50 
-            except: pass
+            # UPDATED: Try to fetch Lot Size again in case it wasn't set
+            if self.lot_size == 0:
+                try:
+                    real_lot = smart_trader.fetch_active_lot_size(self.kite, "NIFTY")
+                    if real_lot > 0: self.lot_size = real_lot
+                except: pass
+            
+            # Fallback if still 0 (only for backtest calculation to prevent crash)
+            sim_lot_size = self.lot_size if self.lot_size > 0 else 50
 
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
             
@@ -193,7 +208,6 @@ class ORBStrategyManager:
                 if signal_state == "WAIT_BUY":
                     if high > trigger_level:
                         trade_found = True; trade_type = "CE"; trade_candle = c; break
-                    # Invalidate if it reverses? 
                     if close < r_low: 
                         signal_state = "NONE" # Reset if Close crosses opposite range
                         
@@ -250,12 +264,10 @@ class ORBStrategyManager:
                     "message": f"✅ Triggered (SPOT) but Option Expired/Missing.\nCannot Execute Trade."
                 }
             
-            # FIX: UPDATE LOT SIZE FOR SPECIFIC OPTION SYMBOL
-            # This ensures we use the correct lot size for the specific contract (e.g. 75 or 25 or 50)
+            # UPDATED: Fetch Specific Lot Size for this simulated symbol
             try:
-                sim_lot_size = smart_trader.get_lot_size(sim_symbol)
-                if sim_lot_size > 0:
-                    self.lot_size = sim_lot_size
+                ls = smart_trader.get_lot_size(sim_symbol)
+                if ls > 0: sim_lot_size = ls
             except: pass
 
             # --- AUTO EXECUTE LOGIC ---
@@ -293,7 +305,6 @@ class ORBStrategyManager:
                 if risk_points < 5: risk_points = 5
                 
                 # B. Build Target Controls & Custom Targets
-                # FIX: Logic perfectly matches Live Bot _execute_entry
                 custom_targets = []
                 t_controls = []
                 total_qty = 0
@@ -311,10 +322,8 @@ class ORBStrategyManager:
                     is_full = leg.get('full', False)
                     trail = leg.get('trail', False)
                     
-                    # Ensure lot size is valid
-                    current_lot_size = self.lot_size if self.lot_size > 0 else 50
-                    
-                    leg_qty_total = lots * current_lot_size
+                    # USE SIMULATED LOT SIZE
+                    leg_qty_total = lots * sim_lot_size
                     total_qty += leg_qty_total
                     
                     # Exit Qty logic
@@ -331,7 +340,7 @@ class ORBStrategyManager:
                     custom_targets.append(0)
                     t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
-                if total_qty == 0: total_qty = self.lot_size 
+                if total_qty == 0: total_qty = sim_lot_size 
                 
                 # C. Execute Import
                 res = replay_engine.import_past_trade(
@@ -351,7 +360,7 @@ class ORBStrategyManager:
                 
                 return {
                     "status": "success",
-                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nQty: {total_qty} ({total_qty/self.lot_size} Lots)\nEntry: {entry_est}\nTime: {entry_time_str}\n\nCheck Dashboard."
+                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nQty: {total_qty} ({total_qty/sim_lot_size} Lots)\nEntry: {entry_est}\nTime: {entry_time_str}\n\nCheck Dashboard."
                 }
 
             return {
@@ -567,6 +576,7 @@ class ORBStrategyManager:
         strike_diff = 50
         atm_strike = round(spot_ltp / strike_diff) * strike_diff
         
+        # UPDATED: Fetch Details to get Current Expiry from Zerodha
         details = smart_trader.get_symbol_details(self.kite, "NIFTY")
         if not details or not details.get('opt_expiries'): return
         
@@ -574,11 +584,16 @@ class ORBStrategyManager:
         symbol_name = smart_trader.get_exact_symbol("NIFTY", current_expiry, atm_strike, trade_type)
         if not symbol_name: return
 
-        # FIX: Fetch Lot Size for the specific Option Symbol (Live Trade)
+        # UPDATED: Fetch Lot Size for the specific Option Symbol from Zerodha
         try:
             ls = smart_trader.get_lot_size(symbol_name)
             if ls > 0: self.lot_size = ls
         except: pass
+        
+        # Fallback safeguard if fetch fails
+        if self.lot_size <= 0:
+            print(f"❌ [ORB] Error: Lot Size is 0 for {symbol_name}. Cannot Execute.")
+            return
 
         sl_price = 0
         entry_est = smart_trader.get_ltp(self.kite, symbol_name)
@@ -616,6 +631,7 @@ class ORBStrategyManager:
             target_price = entry_est + (risk_points * ratio)
             target_price = round(target_price, 2)
             
+            # Use Fetched Lot Size
             qty_for_leg = 1000 if is_full else (lots * self.lot_size)
             if not is_full: total_quantity_lots += lots
             

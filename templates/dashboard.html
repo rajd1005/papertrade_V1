@@ -118,7 +118,7 @@
                 <div class="col-12 col-md-9">
                     <div class="row g-2 align-items-center justify-content-end">
                         
-                        <div class="col-6 col-md-auto">
+                        <div class="col-6 col-md-3">
                             <div class="input-group input-group-sm">
                                 <span class="input-group-text bg-white border-0 fw-bold text-muted">Mode</span>
                                 <select class="form-select fw-bold border-0 shadow-sm" id="orb_mode_input">
@@ -129,7 +129,7 @@
                             </div>
                         </div>
 
-                        <div class="col-6 col-md-auto">
+                        <div class="col-6 col-md-3">
                             <div class="input-group input-group-sm">
                                 <span class="input-group-text bg-white border-0 fw-bold text-muted">Lots</span>
                                 <input type="number" id="orb_lots_input" class="form-control text-center fw-bold border-0 shadow-sm" 
@@ -137,18 +137,36 @@
                             </div>
                         </div>
 
+                        <div class="col-6 col-md-3">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-white border-0 fw-bold text-muted">Dir</span>
+                                <select class="form-select fw-bold border-0 shadow-sm" id="orb_direction">
+                                    <option value="BOTH" selected>BOTH</option>
+                                    <option value="CE">CE Only</option>
+                                    <option value="PE">PE Only</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="col-6 col-md-3">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-white border-0 fw-bold text-muted">Stop</span>
+                                <input type="time" id="orb_cutoff" class="form-control fw-bold border-0 shadow-sm" value="13:00">
+                            </div>
+                        </div>
+
                         <div class="col-6 col-md-auto text-end text-md-center">
-                            <div class="bg-white rounded px-3 py-1 shadow-sm">
+                            <div class="bg-white rounded px-3 py-1 shadow-sm h-100 d-flex flex-column justify-content-center">
                                 <small class="d-block text-muted" style="font-size: 0.65rem;">TOTAL QTY</small>
                                 <span id="orb_total_qty" class="fw-bold text-success">--</span>
                             </div>
                         </div>
 
                         <div class="col-6 col-md-auto text-end">
-                            <button class="btn btn-success fw-bold btn-sm px-4 w-100 shadow-sm" id="btn_orb_start" onclick="toggleOrb('start')">
+                            <button class="btn btn-success fw-bold btn-sm px-4 w-100 shadow-sm py-2" id="btn_orb_start" onclick="toggleOrb('start')">
                                 <i class="fas fa-play"></i> START
                             </button>
-                            <button class="btn btn-danger fw-bold btn-sm px-4 w-100 shadow-sm d-none" id="btn_orb_stop" onclick="toggleOrb('stop')">
+                            <button class="btn btn-danger fw-bold btn-sm px-4 w-100 shadow-sm d-none py-2" id="btn_orb_stop" onclick="toggleOrb('stop')">
                                 <i class="fas fa-stop"></i> STOP
                             </button>
                         </div>

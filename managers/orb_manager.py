@@ -11,6 +11,7 @@ from managers.common import log_event, get_time_str
 IST = pytz.timezone('Asia/Kolkata')
 
 class ORBStrategyManager:
+    # ... (init remains same) ...
     def __init__(self, kite):
         self.kite = kite
         self.active = False
@@ -196,7 +197,6 @@ class ORBStrategyManager:
                 expiry_str = api_expiry
                 print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
-                # Fallback: Tuesday Calculation (Weekday 1)
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -237,7 +237,7 @@ class ORBStrategyManager:
                 elif hasattr(s_time, 'replace'):
                     s_time = s_time.replace(tzinfo=None)
                 
-                # Format strictly as string for Kite API
+                # Format strictly as string
                 from_str = s_time.strftime('%Y-%m-%d %H:%M:%S')
                 to_str = (s_time + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
                 
@@ -371,7 +371,6 @@ class ORBStrategyManager:
                     time.sleep(60)
                     continue
                 
-                # --- SESSION PNL & RISK CHECKS ---
                 if self.max_daily_loss > 0 and self.session_pnl <= -self.max_daily_loss:
                     if not self.is_done_for_day:
                         print(f"🛑 [ORB] Max Daily Loss Hit: {self.session_pnl}")

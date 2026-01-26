@@ -160,6 +160,7 @@ class ORBStrategyManager:
                 close = c['close']
                 c_dt = c['date']
                 
+                # Normalize Timestamp if string
                 if isinstance(c_dt, str): 
                     try: c_dt = datetime.datetime.strptime(c_dt, "%Y-%m-%dT%H:%M:%S%z")
                     except: 
@@ -187,10 +188,12 @@ class ORBStrategyManager:
 
             if api_expiry:
                 expiry_str = api_expiry
+                print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
+                print(f"⚠️ [ORB] Using Fallback Expiry (Tuesday): {expiry_str}")
             
             # 5. Build Symbol Details
             close_price = float(signal_candle['close'])
@@ -217,19 +220,28 @@ class ORBStrategyManager:
                 
                 # Fetch candle at signal time
                 s_time = signal_candle['date']
-                if isinstance(s_time, str): s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z")
                 
-                # Convert to offset-aware if needed
-                if s_time.tzinfo is None: s_time = IST.localize(s_time)
+                # FIX: Remove Timezone Info explicitly to avoid "Invalid from date" API error
+                if isinstance(s_time, str):
+                    try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+                    except: 
+                        try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=None)
+                        except: pass
+                elif hasattr(s_time, 'replace'):
+                    s_time = s_time.replace(tzinfo=None)
                 
-                opt_data = self.kite.historical_data(opt_token, s_time, s_time + datetime.timedelta(minutes=10), self.timeframe)
+                # Format strictly as string
+                from_str = s_time.strftime('%Y-%m-%d %H:%M:%S')
+                to_str = (s_time + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
+                
+                opt_data = self.kite.historical_data(opt_token, from_str, to_str, self.timeframe)
                 
                 if not opt_data:
                     return {"status": "error", "message": "Could not fetch Option Candle for Pricing."}
                 
                 opt_candle = opt_data[0]
-                entry_est = float(opt_candle['close']) # Entry at Candle Close
-                sl_price = float(opt_candle['low'])    # SL at Candle Low
+                entry_est = float(opt_candle['close']) 
+                sl_price = float(opt_candle['low'])    
                 
                 risk_points = entry_est - sl_price
                 if risk_points < 5: risk_points = 5
@@ -261,12 +273,11 @@ class ORBStrategyManager:
                         'trail_to_entry': leg.get('trail', False)
                     })
                 
-                # Fill to 3
                 while len(custom_targets) < 3:
                     custom_targets.append(0)
                     t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
-                if total_qty == 0: total_qty = 50 # Fallback
+                if total_qty == 0: total_qty = 50 
                 
                 # C. Execute Import
                 res = replay_engine.import_past_trade(
@@ -289,7 +300,6 @@ class ORBStrategyManager:
                     "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nEntry: {entry_est}\nSL: {sl_price}\nTime: {entry_time_str}\n\nCheck Dashboard."
                 }
 
-            # Normal Non-Execute Return
             return {
                 "status": "success",
                 "message": f"Signal Found: {signal_type} @ {entry_time_str}",
@@ -303,7 +313,6 @@ class ORBStrategyManager:
         except Exception as e:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
-    # ... (Rest of the class methods remain unchanged) ...
     def _get_nifty_futures_token(self):
         try:
             instruments = self.kite.instruments("NFO")
@@ -529,7 +538,6 @@ class ORBStrategyManager:
         # --- NEW: Build Targets from Full Config ---
         custom_targets = []
         t_controls = []
-        total_quantity_lots = 0
         
         for leg in self.legs_config:
             # Check Active
@@ -547,7 +555,6 @@ class ORBStrategyManager:
             target_price = round(target_price, 2)
             
             qty_for_leg = 1000 if is_full else (lots * self.lot_size)
-            if not is_full: total_quantity_lots += lots
             
             custom_targets.append(target_price)
             t_controls.append({

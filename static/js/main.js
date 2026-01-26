@@ -83,7 +83,7 @@ $(document).ready(function() {
 });
 
 // ==========================================
-// ORB STRATEGY FUNCTIONS
+// ORB STRATEGY FUNCTIONS (UPDATED)
 // ==========================================
 
 function loadOrbStatus() {
@@ -104,16 +104,25 @@ function loadOrbStatus() {
             
             // Lock Controls & Sync Value (Only if not focused to avoid typing interruption)
             if (!$('#orb_lots_input').is(':focus')) $('#orb_lots_input').val(data.current_lots);
+            if (!$('#orb_mode_input').is(':focus')) $('#orb_mode_input').val(data.current_mode);
             
-            // Sync new fields
+            // Sync New Features (Direction, Cutoff)
             if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
             if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
+
+            // Sync Re-entry Settings
+            $('#orb_reentry_same_sl').prop('checked', data.re_sl);
+            $('#orb_reentry_same_filter').val(data.re_sl_filter);
+            $('#orb_reentry_opposite').prop('checked', data.re_opp);
 
             // Disable Inputs while Running
             $('#orb_lots_input').prop('disabled', true);
             $('#orb_mode_input').prop('disabled', true);
             $('#orb_direction').prop('disabled', true);
             $('#orb_cutoff').prop('disabled', true);
+            $('#orb_reentry_same_sl').prop('disabled', true);
+            $('#orb_reentry_same_filter').prop('disabled', true);
+            $('#orb_reentry_opposite').prop('disabled', true);
             
         } else {
             $('#orb_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
@@ -127,6 +136,9 @@ function loadOrbStatus() {
             $('#orb_mode_input').prop('disabled', false);
             $('#orb_direction').prop('disabled', false);
             $('#orb_cutoff').prop('disabled', false);
+            $('#orb_reentry_same_sl').prop('disabled', false);
+            $('#orb_reentry_same_filter').prop('disabled', false);
+            $('#orb_reentry_opposite').prop('disabled', false);
         }
         
         // 3. Recalculate Totals
@@ -153,6 +165,11 @@ function toggleOrb(action) {
     let direction = $('#orb_direction').val();
     let cutoff = $('#orb_cutoff').val();
 
+    // New Re-entry Params
+    let re_sl = $('#orb_reentry_same_sl').is(':checked');
+    let re_sl_filter = $('#orb_reentry_same_filter').val();
+    let re_opp = $('#orb_reentry_opposite').is(':checked');
+
     if (action === 'start') {
         // VALIDATION: Minimum 2 Lots
         if (lots < 2) {
@@ -166,8 +183,8 @@ function toggleOrb(action) {
             alert("⚠️ Lots adjusted to " + lots + ". Must be a multiple of 2.");
             $('#orb_lots_input').val(lots);
         }
-        
-        if(!cutoff) {
+
+        if (!cutoff) {
             alert("Please select a valid Cutoff Time.");
             return;
         }
@@ -181,7 +198,10 @@ function toggleOrb(action) {
         lots: lots,
         mode: mode,
         direction: direction,
-        cutoff: cutoff
+        cutoff: cutoff,
+        re_sl: re_sl,
+        re_sl_filter: re_sl_filter,
+        re_opp: re_opp
     };
 
     $.ajax({

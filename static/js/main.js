@@ -75,6 +75,7 @@ $(document).ready(function() {
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
     $('#hist_date').val(localDate.toISOString().slice(0,10));
+    
     // Default Backtest Date to Today
     if($('#orb_backtest_date').length) $('#orb_backtest_date').val(localDate.toISOString().slice(0,10));
     
@@ -202,7 +203,7 @@ function loadOrbStatus() {
             $('#btn_orb_start').addClass('d-none');
             $('#btn_orb_stop').removeClass('d-none');
 
-            // Lock ALL Inputs (Added .orb-trail-check here)
+            // Lock ALL Inputs (Now includes .orb-trail-check)
             $('.orb-leg-input, .orb-leg-check, .orb-full-check, .orb-trail-check').prop('disabled', true); 
             $('#orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
@@ -337,25 +338,23 @@ function runOrbBacktest() {
     let originalText = btn.html();
     btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Running...');
     
+    // Auto-Execute is now True
     $.ajax({
         url: '/api/orb/backtest',
         type: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify({ date: date }),
+        data: JSON.stringify({ 
+            date: date,
+            execute: true  // <--- NEW: Trigger Auto-Execute
+        }),
         success: function(res) {
+            // Simply show the result message (Success or Warning)
             if(res.status === 'success') {
-                if(confirm(res.message + "\n\nDo you want to Import this trade for detailed replay?")) {
-                    // Pre-fill Import Modal
-                    let sugg = res.suggestion;
-                    $('#imp_sym').val(sugg.symbol);
-                    $('#imp_time').val(sugg.time);
-                    if(sugg.type === 'CE') $('input[name="imp_type"][value="CE"]').prop('checked', true);
-                    else $('input[name="imp_type"][value="PE"]').prop('checked', true);
-                    
-                    $('#importModal').modal('show');
-                    // Trigger change to load LTP/details
-                    $('#imp_sym').change();
-                }
+                if(window.showFloatingAlert) showFloatingAlert(res.message, 'success');
+                else alert(res.message);
+                
+                // If trade executed, refresh positions table
+                if(typeof updateData === 'function') updateData(); 
             } else {
                 alert(res.message);
             }

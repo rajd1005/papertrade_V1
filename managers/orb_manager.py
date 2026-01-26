@@ -11,7 +11,6 @@ from managers.common import log_event, get_time_str
 IST = pytz.timezone('Asia/Kolkata')
 
 class ORBStrategyManager:
-    # ... (init remains same) ...
     def __init__(self, kite):
         self.kite = kite
         self.active = False
@@ -197,6 +196,7 @@ class ORBStrategyManager:
                 expiry_str = api_expiry
                 print(f"✅ [ORB] Auto-Fetched Expiry: {expiry_str}")
             else:
+                # Fallback: Tuesday Calculation (Weekday 1)
                 days_ahead = (1 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -228,7 +228,7 @@ class ORBStrategyManager:
                 # Fetch candle at signal time
                 s_time = signal_candle['date']
                 
-                # FIX: Remove Timezone Info explicitly to avoid "Invalid from date" API error
+                # Remove Timezone Info explicitly
                 if isinstance(s_time, str):
                     try: s_time = datetime.datetime.strptime(s_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
                     except: 
@@ -272,9 +272,12 @@ class ORBStrategyManager:
                     
                     # Ensure lot size is valid
                     if self.lot_size <= 0: self.lot_size = 50
-                    qty_leg = 1000 if is_full else (lots * self.lot_size)
                     
-                    if not is_full: total_qty += (lots * self.lot_size)
+                    # FIX: Always add lots to TOTAL QTY, even if it's a "Full" exit leg.
+                    total_qty += (lots * self.lot_size)
+                    
+                    # For Target Control (Exit Logic):
+                    qty_leg = 1000 if is_full else (lots * self.lot_size)
                     
                     custom_targets.append(t_price)
                     t_controls.append({
@@ -294,7 +297,7 @@ class ORBStrategyManager:
                 res = replay_engine.import_past_trade(
                     self.kite,
                     symbol=sim_symbol,
-                    entry_dt_str=entry_time_str, # Passed correct parameter name
+                    entry_dt_str=entry_time_str, 
                     qty=total_qty,
                     entry_price=entry_est,
                     sl_price=sl_price,
@@ -308,7 +311,7 @@ class ORBStrategyManager:
                 
                 return {
                     "status": "success",
-                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nEntry: {entry_est}\nSL: {sl_price}\nTime: {entry_time_str}\n\nCheck Dashboard."
+                    "message": f"✅ Trade Simulated & Executed!\n\nSymbol: {sim_symbol}\nQty: {total_qty}\nEntry: {entry_est}\nTime: {entry_time_str}\n\nCheck Dashboard."
                 }
 
             # If Auto Execute is False, return suggestion
@@ -550,7 +553,6 @@ class ORBStrategyManager:
         # --- NEW: Build Targets from Full Config ---
         custom_targets = []
         t_controls = []
-        total_quantity_lots = 0
         
         for leg in self.legs_config:
             # Check Active
@@ -568,7 +570,6 @@ class ORBStrategyManager:
             target_price = round(target_price, 2)
             
             qty_for_leg = 1000 if is_full else (lots * self.lot_size)
-            if not is_full: total_quantity_lots += lots
             
             custom_targets.append(target_price)
             t_controls.append({

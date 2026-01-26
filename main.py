@@ -65,12 +65,11 @@ def run_auto_login_process():
                 login_state = "IDLE"
                 gc.collect()
 
-                # --- START ORB STRATEGY (Auto-Init) ---
+                # --- START ORB STRATEGY (Manual Init) ---
                 if orb_bot is None:
                     orb_bot = ORBStrategyManager(kite)
-                # Auto-start with default settings (Paper, 2 Lots) so it's ready
-                if not orb_bot.active:
-                    orb_bot.start(lots=2, mode="PAPER")
+                # NOTE: Auto-start removed as per user request. 
+                # Bot waits for manual start from Strategy Page.
                 # --------------------------------------
                 
                 # [NOTIFICATION] Success
@@ -187,6 +186,15 @@ def home():
     
     return render_template('dashboard.html', is_active=False, state=login_state, error=login_error_msg, login_url=kite.login_url())
 
+@app.route('/strategies')
+def strategies():
+    global bot_active, login_state
+    # Reuses the login/active logic but renders the new Strategy Page
+    if bot_active:
+        return render_template('strategies.html', is_active=True)
+    
+    return render_template('strategies.html', is_active=False, state=login_state, error=login_error_msg, login_url=kite.login_url())
+
 @app.route('/secure', methods=['GET', 'POST'])
 def secure_login_page():
     if request.method == 'POST':
@@ -200,7 +208,7 @@ def secure_login_page():
 def api_status():
     return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
 
-# --- ORB STRATEGY ROUTES (UPDATED) ---
+# --- ORB STRATEGY ROUTES ---
 
 @app.route('/api/orb/params')
 def api_orb_params():
@@ -226,7 +234,6 @@ def api_orb_params():
         active = orb_bot.active
         current_lots = orb_bot.lots
         current_mode = orb_bot.mode
-        # Updated: Return all new state variables
         current_direction = orb_bot.target_direction
         current_cutoff = orb_bot.cutoff_time.strftime("%H:%M")
         
@@ -310,11 +317,10 @@ def callback():
             smart_trader.fetch_instruments(kite)
             gc.collect()
 
-            # --- START ORB STRATEGY (Auto-Init) ---
+            # --- START ORB STRATEGY (Manual Init) ---
             if orb_bot is None:
                 orb_bot = ORBStrategyManager(kite)
-            if not orb_bot.active:
-                orb_bot.start(lots=2, mode="PAPER")
+            # Auto-start removed
             # --------------------------------------
             
             telegram_bot.notify_system_event("LOGIN_SUCCESS", "Manual Login (Callback) Successful.")

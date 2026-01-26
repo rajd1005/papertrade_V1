@@ -208,7 +208,7 @@ function updateOrbCalc() {
 
 function toggleOrb(action) {
     let lots = parseInt($('#orb_lots_input').val()) || 2;
-    let mode = $('#orb_mode_input').val(); // Get selected mode (PAPER/LIVE/SHADOW)
+    let mode = $('#orb_mode_input').val(); 
     let direction = $('#orb_direction').val();
     let cutoff = $('#orb_cutoff').val();
 
@@ -471,7 +471,9 @@ function bindSearch(inputId, listId) {
             let list = $(listId);
             list.empty();
             data.forEach(item => {
-                list.append(`<option value="${item}">`);
+                // FIXED: Handle object items (e.g. {tradingsymbol: '...', ...})
+                let val = (typeof item === 'object' && item !== null) ? (item.tradingsymbol || item.symbol || item.name || JSON.stringify(item)) : item;
+                list.append(`<option value="${val}">`);
             });
         });
     });
@@ -504,7 +506,12 @@ function fillChain(symId, expId, typeSelector, strId) {
         else if(sym.includes('BANK')) ltp = indices.BANKNIFTY;
         
         $.getJSON('/api/chain', { symbol: sym, expiry: exp, type: typ, ltp: ltp }, function(strikes) {
-            let opts = strikes.map(s => `<option value="${s}" ${s == strikes[Math.floor(strikes.length/2)] ? 'selected':''}>${s}</option>`).join('');
+            let opts = strikes.map(s => {
+                // FIXED: Handle object items (e.g. {strike: 21000})
+                let val = (typeof s === 'object' && s !== null) ? (s.strike || s.price || s) : s;
+                let isSelected = (s == strikes[Math.floor(strikes.length/2)]) ? 'selected' : '';
+                return `<option value="${val}" ${isSelected}>${val}</option>`;
+            }).join('');
             $(strId).html(opts).trigger('change');
         });
     });

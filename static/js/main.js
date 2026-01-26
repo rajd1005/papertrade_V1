@@ -1,7 +1,7 @@
 // Global State
 let orbLotSize = 50; 
 let orbCheckInterval = null;
-let isOrbFirstLoad = true; // <--- NEW: Flag to track initial load
+let isOrbFirstLoad = true; // Flag to track initial load for sync logic
 
 // --- 1. STRICT ENFORCEMENT LOGIC ---
 // Defined globally so it can be called from anywhere (Poller, Events, Init)
@@ -48,17 +48,16 @@ $(document).ready(function() {
         orbCheckInterval = setInterval(loadOrbStatus, 3000);
     }
     
-    // --- 2. BINDINGS FOR STRICT RULES ---
+    // --- 2. BINDINGS FOR STRICT RULES & CALCULATIONS ---
     
     // A. When Direction Changes -> Enforce Rules Immediately
     $('#orb_direction').change(enforceStrictReEntryRules);
 
-    // B. NEW: Bind Calculation to Multi-Leg Inputs
-    // This handles real-time updates of "Total Qty" when user changes leg lots
-    $('.orb-leg-input').on('input change', updateOrbCalc);
+    // B. Bind Calculation to Multi-Leg Inputs (Include Checkboxes now)
+    // This handles real-time updates of "Total Qty" when user changes leg lots or toggles active
+    $('.orb-leg-input, .orb-leg-check').on('input change', updateOrbCalc);
     
-    // C. Intercept ALL interactions on the Checkbox
-    // Catches clicks, double-clicks, and keyboard toggles
+    // C. Intercept ALL interactions on the Opposite Checkbox
     $('#orb_reentry_opposite').on('click mousedown mouseup change', function(e) {
         let dir = $('#orb_direction').val();
         if (dir && dir !== 'BOTH') {
@@ -140,35 +139,53 @@ function loadOrbStatus() {
         }
 
         // --- SYNCHRONIZATION LOGIC ---
-        // We ONLY sync inputs from the server if:
-        // A) The Bot is RUNNING (Server is Master)
-        // B) It is the FIRST load of the page (To populate defaults/last state)
-        // If Bot is STOPPED and it's NOT the first load, we DO NOT touch inputs 
-        // to prevent overwriting user edits while they are typing.
+        // Sync inputs if Bot is RUNNING or it's the FIRST load.
         let shouldSync = data.active || isOrbFirstLoad;
 
         if (shouldSync) {
-            // 2. Populate Multi-Leg Inputs
+            // 2. Populate Multi-Leg Inputs (Active, Lots, Full, Ratio, Cost/Trail)
             if(data.legs_config && Array.isArray(data.legs_config)) {
                 for(let i=0; i<3; i++) {
                     let leg = data.legs_config[i];
                     if(leg) {
-                        // Use :focus check just in case, though shouldSync handles most cases
+                        // Inputs (Check focus to avoid interrupting typing)
                         if (!$(`#orb_leg${i+1}_lots`).is(':focus')) $(`#orb_leg${i+1}_lots`).val(leg.lots);
                         if (!$(`#orb_leg${i+1}_ratio`).is(':focus')) $(`#orb_leg${i+1}_ratio`).val(leg.ratio);
-                        $(`#orb_leg${i+1}_trail`).prop('checked', leg.trail);
+                        
+                        // Checkboxes
+                        $(`#orb_leg${i+1}_active`).prop('checked', leg.active !== false); // Default true
+                        $(`#orb_leg${i+1}_full`).prop('checked', leg.full);
+                        $(`#orb_leg${i+1}_trail`).prop('checked', leg.trail); // "Cost" checkbox
                     } else {
+                        // Reset defaults if config missing
                         if (!$(`#orb_leg${i+1}_lots`).is(':focus')) $(`#orb_leg${i+1}_lots`).val(0);
+                        $(`#orb_leg${i+1}_active`).prop('checked', i===0);
                     }
                 }
             }
 
-            // 3. Sync Main Parameters
+            // 3. Populate Risk Management Settings
+            let r = data.risk || {};
+            if (!$('#orb_max_loss').is(':focus')) $('#orb_max_loss').val(r.max_loss);
+            if (!$('#orb_trail_pts').is(':focus')) $('#orb_trail_pts').val(r.trail_pts);
+            $('#orb_sl_to_entry').val(r.sl_entry);
+            
+            if (!$('#orb_profit_active').is(':focus')) $('#orb_profit_active').val(r.p_active);
+            if (!$('#orb_profit_min').is(':focus')) $('#orb_profit_min').val(r.p_min);
+            if (!$('#orb_profit_trail').is(':focus')) $('#orb_profit_trail').val(r.p_trail);
+            
+            // 4. Display Session PnL (Always update this, regardless of sync rules)
+            let pnl = parseFloat(r.session_pnl || 0);
+            $('#orb_session_pnl').text(pnl.toFixed(2));
+            if(pnl >= 0) $('#orb_session_pnl').removeClass('text-danger').addClass('text-success');
+            else $('#orb_session_pnl').removeClass('text-success').addClass('text-danger');
+
+            // 5. Sync Main Parameters
             if (!$('#orb_mode_input').is(':focus')) $('#orb_mode_input').val(data.current_mode);
             if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
             if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
 
-            // 4. Sync Re-entry Settings
+            // 6. Sync Re-entry Settings
             $('#orb_reentry_same_sl').prop('checked', data.re_sl);
             $('#orb_reentry_same_filter').val(data.re_sl_filter);
             $('#orb_reentry_opposite').prop('checked', data.re_opp);
@@ -183,9 +200,13 @@ function loadOrbStatus() {
             $('#btn_orb_stop').removeClass('d-none');
 
             // Lock ALL Inputs
-            $('.orb-leg-input').prop('disabled', true); 
+            $('.orb-leg-input, .orb-leg-check, .orb-full-check').prop('disabled', true); 
             $('#orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
+            
+            // Lock Risk Inputs
+            $('#orb_max_loss, #orb_trail_pts, #orb_sl_to_entry').prop('disabled', true);
+            $('#orb_profit_active, #orb_profit_min, #orb_profit_trail').prop('disabled', true);
             
         } else {
             // --- STOPPED STATE ---
@@ -195,12 +216,16 @@ function loadOrbStatus() {
             $('#btn_orb_stop').addClass('d-none');
             
             // Unlock Main Controls
-            $('.orb-leg-input').prop('disabled', false); 
+            $('.orb-leg-input, .orb-leg-check, .orb-full-check').prop('disabled', false); 
             $('#orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', false);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter').prop('disabled', false);
+            
+            // Unlock Risk Inputs
+            $('#orb_max_loss, #orb_trail_pts, #orb_sl_to_entry').prop('disabled', false);
+            $('#orb_profit_active, #orb_profit_min, #orb_profit_trail').prop('disabled', false);
         }
         
-        // 5. Cleanup
+        // 7. Cleanup
         enforceStrictReEntryRules();
         updateOrbCalc();
         isOrbFirstLoad = false; // Disable first-load sync after first run
@@ -208,10 +233,10 @@ function loadOrbStatus() {
 }
 
 function updateOrbCalc() {
-    // Read from new 3-Leg Inputs
-    let l1 = parseInt($('#orb_leg1_lots').val()) || 0;
-    let l2 = parseInt($('#orb_leg2_lots').val()) || 0;
-    let l3 = parseInt($('#orb_leg3_lots').val()) || 0;
+    // Read from new 3-Leg Inputs (Check Active status)
+    let l1 = $('#orb_leg1_active').is(':checked') ? (parseInt($('#orb_leg1_lots').val()) || 0) : 0;
+    let l2 = $('#orb_leg2_active').is(':checked') ? (parseInt($('#orb_leg2_lots').val()) || 0) : 0;
+    let l3 = $('#orb_leg3_active').is(':checked') ? (parseInt($('#orb_leg3_lots').val()) || 0) : 0;
     
     let totalLots = l1 + l2 + l3;
     
@@ -230,26 +255,38 @@ function toggleOrb(action) {
     let re_sl = $('#orb_reentry_same_sl').is(':checked');
     let re_sl_filter = $('#orb_reentry_same_filter').val();
     
-    // Force Disable Opposite if Direction is restricted (Sanity Check)
+    // Force Disable Opposite if Direction is restricted
     let re_opp = $('#orb_reentry_opposite').is(':checked');
     if (direction !== 'BOTH') re_opp = false;
 
     // --- SCRAPE LEG CONFIG ---
     let legs_config = [];
-    // We support 3 legs fixed in UI
     for(let i=1; i<=3; i++) {
         legs_config.push({
+            active: $(`#orb_leg${i}_active`).is(':checked'),
             lots: parseInt($(`#orb_leg${i}_lots`).val()) || 0,
+            full: $(`#orb_leg${i}_full`).is(':checked'),
             ratio: parseFloat($(`#orb_leg${i}_ratio`).val()) || 0.0,
-            trail: $(`#orb_leg${i}_trail`).is(':checked')
+            trail: $(`#orb_leg${i}_trail`).is(':checked') // "Cost" Checkbox
         });
     }
 
-    // Calc Total Lots for Validation
-    let totalLots = legs_config.reduce((sum, leg) => sum + leg.lots, 0);
+    // --- SCRAPE RISK CONFIG ---
+    let risk = {
+        max_loss: parseFloat($('#orb_max_loss').val()) || 0,
+        trail_pts: parseFloat($('#orb_trail_pts').val()) || 0,
+        sl_entry: parseInt($('#orb_sl_to_entry').val()) || 0,
+        p_active: parseFloat($('#orb_profit_active').val()) || 0,
+        p_min: parseFloat($('#orb_profit_min').val()) || 0,
+        p_trail: parseFloat($('#orb_profit_trail').val()) || 0
+    };
+
+    // Calculate Total Active Lots for Validation
+    let totalLots = 0;
+    legs_config.forEach(l => { if(l.active) totalLots += l.lots; });
 
     if (action === 'start') {
-        if (totalLots < 1) { alert("Total Lots cannot be 0. Please configure at least one leg."); return; }
+        if (totalLots < 1) { alert("Total Active Lots cannot be 0. Please enable and configure at least one leg."); return; }
         if (!cutoff) { alert("Please select a valid Cutoff Time."); return; }
     }
 
@@ -257,14 +294,14 @@ function toggleOrb(action) {
     
     let payload = {
         action: action,
-        lots: totalLots, 
         mode: mode,
         direction: direction,
         cutoff: cutoff,
         re_sl: re_sl,
         re_sl_filter: re_sl_filter,
         re_opp: re_opp,
-        legs_config: legs_config 
+        legs_config: legs_config, // New Leg Config
+        risk: risk                // New Risk Config
     };
 
     $.ajax({

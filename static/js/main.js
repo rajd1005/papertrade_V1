@@ -199,8 +199,8 @@ function loadOrbStatus() {
             $('#btn_orb_start').addClass('d-none');
             $('#btn_orb_stop').removeClass('d-none');
 
-            // Lock ALL Inputs
-            $('.orb-leg-input, .orb-leg-check, .orb-full-check').prop('disabled', true); 
+            // Lock ALL Inputs (Now includes .orb-trail-check)
+            $('.orb-leg-input, .orb-leg-check, .orb-full-check, .orb-trail-check').prop('disabled', true); 
             $('#orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
             
@@ -216,7 +216,7 @@ function loadOrbStatus() {
             $('#btn_orb_stop').addClass('d-none');
             
             // Unlock Main Controls
-            $('.orb-leg-input, .orb-leg-check, .orb-full-check').prop('disabled', false); 
+            $('.orb-leg-input, .orb-leg-check, .orb-full-check, .orb-trail-check').prop('disabled', false); 
             $('#orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', false);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter').prop('disabled', false);
             

@@ -220,33 +220,38 @@ def api_orb_params():
     except: pass
     
     active = False
-    current_lots = 2
     current_mode = "PAPER"
     current_direction = "BOTH"
     current_cutoff = "13:00"
     
-    # New Params Defaults
+    # 1. Default Leg Configuration
+    legs_config = [
+        {'active': True, 'lots': 1, 'full': False, 'ratio': 1.0, 'trail': True},
+        {'active': True, 'lots': 1, 'full': False, 'ratio': 2.0, 'trail': False},
+        {'active': False, 'lots': 1, 'full': True, 'ratio': 3.0, 'trail': False}
+    ]
+    
+    # 2. Default Risk Configuration
+    risk_settings = {
+        'max_loss': 0, 
+        'trail_pts': 0, 
+        'sl_entry': 0,
+        'p_active': 0, 
+        'p_min': 0, 
+        'p_trail': 0,
+        'session_pnl': 0.0
+    }
+    
     re_sl = False
     re_sl_filter = "BOTH"
     re_opp = False
     
-    # Default Legs Config (Matches ORBManager default)
-    legs_config = [
-        {'lots': 1, 'ratio': 1.0, 'trail': True},
-        {'lots': 1, 'ratio': 2.0, 'trail': False},
-        {'lots': 0, 'ratio': 3.0, 'trail': False}
-    ]
-    
     if orb_bot:
         active = orb_bot.active
-        # FIX: orb_bot no longer has .lots, it has .legs_config
-        if hasattr(orb_bot, 'legs_config'):
+        
+        # Populate Legs from Bot
+        if hasattr(orb_bot, 'legs_config') and orb_bot.legs_config:
             legs_config = orb_bot.legs_config
-            # Calculate total lots from legs
-            current_lots = sum(leg.get('lots', 0) for leg in legs_config)
-        else:
-            # Fallback if attribute missing (should not happen with updated manager)
-            current_lots = 2 
             
         current_mode = orb_bot.mode
         current_direction = orb_bot.target_direction
@@ -255,50 +260,71 @@ def api_orb_params():
         re_sl = orb_bot.reentry_same_sl
         re_sl_filter = orb_bot.reentry_same_filter
         re_opp = orb_bot.reentry_opposite
+        
+        # Populate Risk from Bot
+        risk_settings = {
+            'max_loss': getattr(orb_bot, 'max_daily_loss', 0),
+            'trail_pts': getattr(orb_bot, 'trailing_sl_pts', 0),
+            'sl_entry': getattr(orb_bot, 'sl_to_entry_mode', 0),
+            'p_active': getattr(orb_bot, 'profit_active', 0),
+            'p_min': getattr(orb_bot, 'profit_lock_min', 0),
+            'p_trail': getattr(orb_bot, 'profit_trail_step', 0),
+            'session_pnl': getattr(orb_bot, 'session_pnl', 0.0)
+        }
     
     return jsonify({
         "active": active,
         "lot_size": ls,
-        "current_lots": current_lots, # Kept for compatibility, though frontend calculates it too
         "current_mode": current_mode,
         "current_direction": current_direction,
         "current_cutoff": current_cutoff,
         "re_sl": re_sl,
         "re_sl_filter": re_sl_filter,
         "re_opp": re_opp,
-        "legs_config": legs_config # <--- Send Legs to Frontend
+        "legs_config": legs_config, # <-- Sent to Frontend
+        "risk": risk_settings       # <-- Sent to Frontend
     })
 
 @app.route('/api/orb/toggle', methods=['POST'])
 def api_orb_toggle():
     global orb_bot
     action = request.json.get('action') 
-    lots = int(request.json.get('lots', 2)) # Used for legacy/logging
-    mode = request.json.get('mode', 'PAPER')
     
-    # New Params Extraction
+    # Basic Params
+    mode = request.json.get('mode', 'PAPER')
     direction = request.json.get('direction', 'BOTH')
     cutoff = request.json.get('cutoff', '13:00')
+    
+    # Re-entry Params
     re_sl = request.json.get('re_sl', False)
     re_sl_filter = request.json.get('re_sl_filter', 'BOTH')
     re_opp = request.json.get('re_opp', False)
     
-    # Extract Legs Config
+    # Legs Configuration
     legs_config = request.json.get('legs_config')
+    
+    # Risk Configuration
+    risk = request.json.get('risk', {})
     
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
         
     if action == 'start':
         orb_bot.start(
-            # lots=lots, <--- Removed, manager now uses legs_config
             mode=mode, 
             direction=direction, 
             cutoff_str=cutoff,
             re_sl=re_sl,
             re_sl_side=re_sl_filter,
             re_opp=re_opp,
-            legs_config=legs_config # <--- Pass Legs Config
+            legs_config=legs_config,
+            # Pass Risk Parameters to Start
+            max_loss=risk.get('max_loss', 0),
+            trail_pts=risk.get('trail_pts', 0),
+            sl_entry=risk.get('sl_entry', 0),
+            p_active=risk.get('p_active', 0),
+            p_min=risk.get('p_min', 0),
+            p_trail=risk.get('p_trail', 0)
         )
         return jsonify({"status": "success", "message": f"✅ ORB Started ({mode})"})
     elif action == 'stop':

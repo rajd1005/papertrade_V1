@@ -333,6 +333,19 @@ def api_orb_toggle():
     
     return jsonify({"active": orb_bot.active})
 
+@app.route('/api/orb/backtest', methods=['POST'])
+def api_orb_backtest():
+    global orb_bot
+    date = request.json.get('date')
+    if not orb_bot:
+        orb_bot = ORBStrategyManager(kite)
+    
+    if not date:
+        return jsonify({"status": "error", "message": "Date is required"})
+        
+    result = orb_bot.run_backtest(date)
+    return jsonify(result)
+
 # -------------------------------------
 
 @app.route('/reset_connection')

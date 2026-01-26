@@ -204,7 +204,7 @@ def api_status():
 
 @app.route('/api/orb/params')
 def api_orb_params():
-    """Provides status, current lot size, lots, mode, direction, and cutoff from server"""
+    """Provides status and all advanced config from server"""
     ls = 50 
     try:
         det = smart_trader.get_symbol_details(kite, "NIFTY")
@@ -217,12 +217,22 @@ def api_orb_params():
     current_direction = "BOTH"
     current_cutoff = "13:00"
     
+    # New Params Defaults
+    re_sl = False
+    re_sl_filter = "BOTH"
+    re_opp = False
+    
     if orb_bot:
         active = orb_bot.active
         current_lots = orb_bot.lots
         current_mode = orb_bot.mode
+        # Updated: Return all new state variables
         current_direction = orb_bot.target_direction
         current_cutoff = orb_bot.cutoff_time.strftime("%H:%M")
+        
+        re_sl = orb_bot.reentry_same_sl
+        re_sl_filter = orb_bot.reentry_same_filter
+        re_opp = orb_bot.reentry_opposite
     
     return jsonify({
         "active": active,
@@ -230,24 +240,40 @@ def api_orb_params():
         "current_lots": current_lots,
         "current_mode": current_mode,
         "current_direction": current_direction,
-        "current_cutoff": current_cutoff
+        "current_cutoff": current_cutoff,
+        "re_sl": re_sl,
+        "re_sl_filter": re_sl_filter,
+        "re_opp": re_opp
     })
 
 @app.route('/api/orb/toggle', methods=['POST'])
 def api_orb_toggle():
     global orb_bot
-    action = request.json.get('action') # 'start' or 'stop'
+    action = request.json.get('action') 
     lots = int(request.json.get('lots', 2))
     mode = request.json.get('mode', 'PAPER')
+    
+    # New Params Extraction
     direction = request.json.get('direction', 'BOTH')
     cutoff = request.json.get('cutoff', '13:00')
+    re_sl = request.json.get('re_sl', False)
+    re_sl_filter = request.json.get('re_sl_filter', 'BOTH')
+    re_opp = request.json.get('re_opp', False)
     
     if not orb_bot:
         orb_bot = ORBStrategyManager(kite)
         
     if action == 'start':
-        orb_bot.start(lots=lots, mode=mode, direction=direction, cutoff_str=cutoff)
-        return jsonify({"status": "success", "message": f"✅ ORB Started: {mode} | {direction} | Cutoff {cutoff} | {lots} Lots"})
+        orb_bot.start(
+            lots=lots, 
+            mode=mode, 
+            direction=direction, 
+            cutoff_str=cutoff,
+            re_sl=re_sl,
+            re_sl_side=re_sl_filter,
+            re_opp=re_opp
+        )
+        return jsonify({"status": "success", "message": f"✅ ORB Started ({mode})"})
     elif action == 'stop':
         orb_bot.stop()
         return jsonify({"status": "success", "message": "🛑 ORB Stopped"})

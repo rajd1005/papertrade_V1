@@ -23,6 +23,20 @@ $(document).ready(function() {
         // Poll status every 3 seconds to keep UI in sync
         orbCheckInterval = setInterval(loadOrbStatus, 3000);
     }
+    
+    // --- NEW: Direction Constraint Logic ---
+    $('#orb_direction').change(function() {
+        let dir = $(this).val();
+        // If not BOTH, disable Opposite Re-entry
+        if(dir !== 'BOTH') {
+            $('#orb_reentry_opposite').prop('checked', false).prop('disabled', true);
+        } else {
+            // Re-enable if bot is not running (Edit Mode)
+             if (!$('#btn_orb_start').hasClass('d-none')) {
+                $('#orb_reentry_opposite').prop('disabled', false);
+             }
+        }
+    });
 
     // 2. Date & Time Defaults
     let now = new Date(); 
@@ -106,7 +120,7 @@ function loadOrbStatus() {
             if (!$('#orb_lots_input').is(':focus')) $('#orb_lots_input').val(data.current_lots);
             if (!$('#orb_mode_input').is(':focus')) $('#orb_mode_input').val(data.current_mode);
             
-            // Sync New Features (Direction, Cutoff)
+            // Sync New Features
             if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
             if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
 
@@ -116,13 +130,8 @@ function loadOrbStatus() {
             $('#orb_reentry_opposite').prop('checked', data.re_opp);
 
             // Disable Inputs while Running
-            $('#orb_lots_input').prop('disabled', true);
-            $('#orb_mode_input').prop('disabled', true);
-            $('#orb_direction').prop('disabled', true);
-            $('#orb_cutoff').prop('disabled', true);
-            $('#orb_reentry_same_sl').prop('disabled', true);
-            $('#orb_reentry_same_filter').prop('disabled', true);
-            $('#orb_reentry_opposite').prop('disabled', true);
+            $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
+            $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
             
         } else {
             $('#orb_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
@@ -132,13 +141,15 @@ function loadOrbStatus() {
             $('#btn_orb_stop').addClass('d-none');
             
             // Unlock Controls
-            $('#orb_lots_input').prop('disabled', false);
-            $('#orb_mode_input').prop('disabled', false);
-            $('#orb_direction').prop('disabled', false);
-            $('#orb_cutoff').prop('disabled', false);
-            $('#orb_reentry_same_sl').prop('disabled', false);
-            $('#orb_reentry_same_filter').prop('disabled', false);
-            $('#orb_reentry_opposite').prop('disabled', false);
+            $('#orb_lots_input, #orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', false);
+            $('#orb_reentry_same_sl, #orb_reentry_same_filter').prop('disabled', false);
+            
+            // Logic Check for Opposite Re-entry Enable/Disable based on Direction
+            if(data.current_direction !== 'BOTH') {
+                $('#orb_reentry_opposite').prop('disabled', true);
+            } else {
+                $('#orb_reentry_opposite').prop('disabled', false);
+            }
         }
         
         // 3. Recalculate Totals

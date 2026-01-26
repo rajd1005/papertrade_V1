@@ -1,5 +1,39 @@
 <div class="card shadow-sm border-0 bg-light mb-3">
     <div class="card-body p-2 p-md-3"> 
+        
+        <div class="accordion mb-3" id="orbInstructions">
+            <div class="accordion-item border-0 shadow-sm">
+                <h2 class="accordion-header" id="headingInst">
+                    <button class="accordion-button collapsed py-2 fw-bold text-muted bg-white" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInst" style="font-size: 0.8rem;">
+                        <i class="fas fa-info-circle me-2"></i> STRATEGY GUIDE & SETTINGS
+                    </button>
+                </h2>
+                <div id="collapseInst" class="accordion-collapse collapse" data-bs-parent="#orbInstructions">
+                    <div class="accordion-body p-3 small text-muted bg-white">
+                        <h6 class="fw-bold text-dark">Logic Overview</h6>
+                        <p class="mb-2">The 5-Min ORB (Open Range Breakout) monitors the NIFTY Spot range from 09:15 to 09:20. It takes a trade when a 5-min candle closes outside this range, confirmed by Futures Volume.</p>
+                        
+                        <h6 class="fw-bold text-dark mt-3">Target Configuration</h6>
+                        <ul class="mb-1 ps-3">
+                            <li><b>Active:</b> Check to enable this Target Leg.</li>
+                            <li><b>Lots:</b> Quantity for this leg (in Lots).</li>
+                            <li><b>Full:</b> If checked, this leg will exit ALL remaining quantity.</li>
+                            <li><b>Ratio:</b> Risk:Reward ratio (e.g., 2.0 means Target = Entry + 2 * Risk).</li>
+                            <li><b>Cost:</b> If checked, SL moves to Entry Price when this Target is hit.</li>
+                        </ul>
+
+                        <h6 class="fw-bold text-dark mt-3">Risk Settings</h6>
+                        <ul class="mb-1 ps-3">
+                            <li><b>Max Loss:</b> Stops strategy if session loss exceeds this amount.</li>
+                            <li><b>Trailing SL:</b> Moves SL by X points for every X points move in favor.</li>
+                            <li><b>SL to Entry:</b> Move SL to Entry (1), Target 1 (2), or Target 2 (3) automatically.</li>
+                            <li><b>Profit Lock:</b> If Strategy PnL > 'Active', lock 'Min' profit and trail by 'Trail'.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="row g-2 g-md-3 align-items-center">
             
             <div class="col-12 col-md-3">
@@ -51,43 +85,6 @@
                     </div>
 
                     <div class="col-12">
-                        <div class="bg-white rounded p-2 shadow-sm">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <small class="fw-bold text-muted" style="font-size: 0.7rem;">TARGET CONFIGURATION (Lots | Risk:Reward | Trail)</small>
-                                <small class="fw-bold text-primary" style="font-size: 0.7rem;">Total Lots: <span id="orb_calc_total">0</span></small>
-                            </div>
-                            
-                            <div class="row g-1 mb-1 text-center text-muted fst-italic" style="font-size: 0.65rem;">
-                                <div class="col-1">#</div>
-                                <div class="col-4">Lots</div>
-                                <div class="col-4">R:R Ratio</div>
-                                <div class="col-3">Trail Entry</div>
-                            </div>
-
-                            <div class="row g-1 mb-1 align-items-center">
-                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">1</span></div>
-                                <div class="col-4"><input type="number" id="orb_leg1_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="0"></div>
-                                <div class="col-4"><input type="number" id="orb_leg1_ratio" class="form-control form-control-sm text-center orb-leg-input" value="1.0" step="0.1"></div>
-                                <div class="col-3 text-center"><input type="checkbox" id="orb_leg1_trail" class="form-check-input" checked></div>
-                            </div>
-
-                            <div class="row g-1 mb-1 align-items-center">
-                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">2</span></div>
-                                <div class="col-4"><input type="number" id="orb_leg2_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="0"></div>
-                                <div class="col-4"><input type="number" id="orb_leg2_ratio" class="form-control form-control-sm text-center orb-leg-input" value="2.0" step="0.1"></div>
-                                <div class="col-3 text-center"><input type="checkbox" id="orb_leg2_trail"></div>
-                            </div>
-
-                             <div class="row g-1 align-items-center">
-                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">3</span></div>
-                                <div class="col-4"><input type="number" id="orb_leg3_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="0" min="0"></div>
-                                <div class="col-4"><input type="number" id="orb_leg3_ratio" class="form-control form-control-sm text-center orb-leg-input" value="3.0" step="0.1"></div>
-                                <div class="col-3 text-center"><input type="checkbox" id="orb_leg3_trail"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="col-12">
                         <div class="bg-white rounded p-2 shadow-sm d-flex flex-wrap align-items-center justify-content-between gap-2">
                             <div class="d-flex align-items-center gap-2 flex-grow-1">
                                 <div class="form-check form-switch m-0">
@@ -104,6 +101,94 @@
                             <div class="form-check form-switch m-0 border-start ps-3 flex-grow-1">
                                 <input class="form-check-input" type="checkbox" id="orb_reentry_opposite">
                                 <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite" style="font-size: 0.75rem;">Re-Entry (Opp)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="bg-white rounded p-2 shadow-sm">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="fw-bold text-muted" style="font-size: 0.7rem;">TARGET CONFIGURATION</small>
+                                <small class="fw-bold text-primary" style="font-size: 0.7rem;">Total: <span id="orb_calc_total">0</span> Lots</small>
+                            </div>
+                            
+                            <div class="row g-1 mb-1 text-center text-muted fst-italic" style="font-size: 0.6rem;">
+                                <div class="col-1">#</div>
+                                <div class="col-2">Active</div>
+                                <div class="col-2">Lots</div>
+                                <div class="col-2">Full</div>
+                                <div class="col-3">Ratio</div>
+                                <div class="col-2">Cost</div>
+                            </div>
+
+                            <div class="row g-1 mb-1 align-items-center">
+                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">1</span></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg1_active" class="form-check-input orb-leg-check" checked></div>
+                                <div class="col-2"><input type="number" id="orb_leg1_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="1"></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg1_full" class="form-check-input orb-full-check"></div>
+                                <div class="col-3"><input type="number" id="orb_leg1_ratio" class="form-control form-control-sm text-center orb-leg-input" value="1.0" step="0.1"></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg1_trail" class="form-check-input" checked></div>
+                            </div>
+
+                            <div class="row g-1 mb-1 align-items-center">
+                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">2</span></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg2_active" class="form-check-input orb-leg-check" checked></div>
+                                <div class="col-2"><input type="number" id="orb_leg2_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="1"></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg2_full" class="form-check-input orb-full-check"></div>
+                                <div class="col-3"><input type="number" id="orb_leg2_ratio" class="form-control form-control-sm text-center orb-leg-input" value="2.0" step="0.1"></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg2_trail" class="form-check-input"></div>
+                            </div>
+
+                             <div class="row g-1 align-items-center">
+                                <div class="col-1 text-center"><span class="badge bg-light text-dark border">3</span></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg3_active" class="form-check-input orb-leg-check"></div>
+                                <div class="col-2"><input type="number" id="orb_leg3_lots" class="form-control form-control-sm text-center fw-bold bg-light orb-leg-input" value="1" min="1"></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg3_full" class="form-check-input orb-full-check"></div>
+                                <div class="col-3"><input type="number" id="orb_leg3_ratio" class="form-control form-control-sm text-center orb-leg-input" value="3.0" step="0.1"></div>
+                                <div class="col-2 text-center"><input type="checkbox" id="orb_leg3_trail" class="form-check-input"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="bg-white rounded p-2 shadow-sm">
+                             <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="fw-bold text-muted" style="font-size: 0.7rem;">RISK & PNL MANAGEMENT</small>
+                                <span class="badge bg-light text-dark border" style="font-size: 0.65rem;">SESSION PNL: <span id="orb_session_pnl" class="fw-bold">0.00</span></span>
+                            </div>
+
+                            <div class="row g-2">
+                                <div class="col-4">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text border-0 bg-light p-1" style="font-size: 0.7rem;">Max Loss</span>
+                                        <input type="number" id="orb_max_loss" class="form-control form-control-sm text-center fw-bold" placeholder="0" style="font-size: 0.8rem;">
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text border-0 bg-light p-1" style="font-size: 0.7rem;">Trail (Pts)</span>
+                                        <input type="number" id="orb_trail_pts" class="form-control form-control-sm text-center" placeholder="0" style="font-size: 0.8rem;">
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                     <div class="input-group input-group-sm">
+                                        <span class="input-group-text border-0 bg-light p-1" style="font-size: 0.7rem;">Limit</span>
+                                        <select class="form-select form-select-sm border-0 bg-white" id="orb_sl_to_entry" style="font-size: 0.75rem;">
+                                            <option value="0">Off</option>
+                                            <option value="1">Entry</option>
+                                            <option value="2">T1</option>
+                                            <option value="3">T2</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-12"><hr class="my-1 text-muted"></div>
+                                <div class="col-12 d-flex align-items-center gap-1">
+                                    <small class="text-muted fw-bold me-1" style="font-size: 0.7rem;">PROFIT LOCK:</small>
+                                    <input type="number" id="orb_profit_active" class="form-control form-control-sm text-center p-1" placeholder="Active" style="font-size: 0.75rem;" title="Activate At">
+                                    <input type="number" id="orb_profit_min" class="form-control form-control-sm text-center p-1" placeholder="Lock" style="font-size: 0.75rem;" title="Min Profit">
+                                    <input type="number" id="orb_profit_trail" class="form-control form-control-sm text-center p-1" placeholder="Step" style="font-size: 0.75rem;" title="Trail Step">
+                                </div>
                             </div>
                         </div>
                     </div>

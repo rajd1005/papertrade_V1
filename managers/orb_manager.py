@@ -249,7 +249,7 @@ class ORBStrategyManager:
             if api_expiry:
                 expiry_str = api_expiry
             else:
-                # FIX: Nifty Expiry is THURSDAY (3)
+                # FIX: Nifty Expiry is THURSDAY (3), not Tuesday (1)
                 days_ahead = (3 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")

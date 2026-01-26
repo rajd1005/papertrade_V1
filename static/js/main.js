@@ -75,6 +75,9 @@ $(document).ready(function() {
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
     $('#hist_date').val(localDate.toISOString().slice(0,10));
+    // Default Backtest Date to Today
+    if($('#orb_backtest_date').length) $('#orb_backtest_date').val(localDate.toISOString().slice(0,10));
+    
     if($('#imp_time').length) $('#imp_time').val(localDate.toISOString().slice(0,16));
     
     // Global Event Bindings
@@ -199,7 +202,7 @@ function loadOrbStatus() {
             $('#btn_orb_start').addClass('d-none');
             $('#btn_orb_stop').removeClass('d-none');
 
-            // Lock ALL Inputs (Now includes .orb-trail-check)
+            // Lock ALL Inputs (Added .orb-trail-check here)
             $('.orb-leg-input, .orb-leg-check, .orb-full-check, .orb-trail-check').prop('disabled', true); 
             $('#orb_mode_input, #orb_direction, #orb_cutoff').prop('disabled', true);
             $('#orb_reentry_same_sl, #orb_reentry_same_filter, #orb_reentry_opposite').prop('disabled', true);
@@ -323,6 +326,42 @@ function toggleOrb(action) {
         complete: function() {
             $('#btn_orb_start, #btn_orb_stop').prop('disabled', false);
         }
+    });
+}
+
+function runOrbBacktest() {
+    let date = $('#orb_backtest_date').val();
+    if(!date) { alert("Please select a date."); return; }
+    
+    let btn = $(event.target);
+    let originalText = btn.html();
+    btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Running...');
+    
+    $.ajax({
+        url: '/api/orb/backtest',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ date: date }),
+        success: function(res) {
+            if(res.status === 'success') {
+                if(confirm(res.message + "\n\nDo you want to Import this trade for detailed replay?")) {
+                    // Pre-fill Import Modal
+                    let sugg = res.suggestion;
+                    $('#imp_sym').val(sugg.symbol);
+                    $('#imp_time').val(sugg.time);
+                    if(sugg.type === 'CE') $('input[name="imp_type"][value="CE"]').prop('checked', true);
+                    else $('input[name="imp_type"][value="PE"]').prop('checked', true);
+                    
+                    $('#importModal').modal('show');
+                    // Trigger change to load LTP/details
+                    $('#imp_sym').change();
+                }
+            } else {
+                alert(res.message);
+            }
+        },
+        error: function(err) { alert("Backtest Failed: " + err.statusText); },
+        complete: function() { btn.prop('disabled', false).html(originalText); }
     });
 }
 

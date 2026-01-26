@@ -156,8 +156,8 @@ class ORBStrategyManager:
                     if real_lot > 0: self.lot_size = real_lot
                 except: pass
             
-            # Fallback if still 0 (only for backtest calculation to prevent crash)
-            sim_lot_size = self.lot_size if self.lot_size > 0 else 50
+            # Use local var to ensure calculation validity
+            sim_lot_size = self.lot_size
 
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
             
@@ -269,6 +269,10 @@ class ORBStrategyManager:
                 ls = smart_trader.get_lot_size(sim_symbol)
                 if ls > 0: sim_lot_size = ls
             except: pass
+            
+            # Fallback Check - If 0, we can't calculate qty
+            if sim_lot_size <= 0:
+                return {"status": "error", "message": f"❌ Error: Lot Size is 0. Cannot simulate trade."}
 
             # --- AUTO EXECUTE LOGIC ---
             if auto_execute:
@@ -305,9 +309,9 @@ class ORBStrategyManager:
                 if risk_points < 5: risk_points = 5
                 
                 # B. Build Target Controls & Custom Targets
+                # --- MATCHING LIVE BOT "TARGET CONFIGURATION" LOGIC ---
                 custom_targets = []
                 t_controls = []
-                total_qty = 0
                 
                 for leg in self.legs_config:
                     if not leg.get('active', False):
@@ -322,12 +326,8 @@ class ORBStrategyManager:
                     is_full = leg.get('full', False)
                     trail = leg.get('trail', False)
                     
-                    # USE SIMULATED LOT SIZE
-                    leg_qty_total = lots * sim_lot_size
-                    total_qty += leg_qty_total
-                    
-                    # Exit Qty logic
-                    exit_qty = 1000 if is_full else leg_qty_total
+                    # Target Exit Quantity (Exactly matching Live Logic)
+                    exit_qty = 1000 if is_full else (lots * sim_lot_size)
                     
                     custom_targets.append(t_price)
                     t_controls.append({
@@ -340,7 +340,12 @@ class ORBStrategyManager:
                     custom_targets.append(0)
                     t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
-                if total_qty == 0: total_qty = sim_lot_size 
+                # Calculate Total Entry Qty (Exactly matching Live Logic)
+                final_entry_lots = sum([leg.get('lots', 0) for leg in self.legs_config if leg.get('active', False)])
+                total_qty = final_entry_lots * sim_lot_size
+                
+                if total_qty <= 0:
+                     total_qty = sim_lot_size # Fallback safety
                 
                 # C. Execute Import
                 res = replay_engine.import_past_trade(

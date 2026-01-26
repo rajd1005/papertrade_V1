@@ -1,28 +1,29 @@
 <div class="card shadow-sm border-0 bg-light mb-3">
-    <div class="card-body py-3">
-        <div class="row g-3 align-items-center">
+    <div class="card-body p-2 p-md-3"> <div class="row g-2 g-md-3 align-items-center">
             
-            <div class="col-12 col-md-3 d-flex align-items-center justify-content-between justify-content-md-start gap-3">
-                <div class="bg-white border rounded p-2 text-center" style="min-width: 80px;">
-                    <small class="d-block text-muted" style="font-size: 0.7rem;">STRATEGY</small>
-                    <span class="fw-bold text-primary">5-Min ORB</span>
-                </div>
-                
-                <div class="d-flex flex-column text-end text-md-start">
-                    <span class="badge bg-secondary mb-1" id="orb_status_badge">OFFLINE</span>
-                    <small class="text-muted" style="font-size: 0.75rem;">
-                        Lot Size: <span id="orb_lot_size" class="fw-bold text-dark">--</span>
-                    </small>
+            <div class="col-12 col-md-3">
+                <div class="d-flex align-items-center justify-content-between justify-content-md-start gap-3 h-100">
+                    <div class="bg-white border rounded p-2 text-center shadow-sm" style="min-width: 80px; flex: 1 md-flex-none;">
+                        <small class="d-block text-muted fw-bold" style="font-size: 0.65rem; letter-spacing: 1px;">STRATEGY</small>
+                        <span class="fw-bold text-primary" style="font-size: 0.9rem;">5-Min ORB</span>
+                    </div>
+                    
+                    <div class="text-end text-md-start">
+                        <span class="badge bg-secondary mb-1 shadow-sm" id="orb_status_badge" style="font-size: 0.7rem;">OFFLINE</span>
+                        <div class="small text-muted" style="font-size: 0.7rem;">
+                            Lot Size: <span id="orb_lot_size" class="fw-bold text-dark">--</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div class="col-12 col-md-9">
-                <div class="row g-2 align-items-center justify-content-end">
+                <div class="row g-2">
                     
                     <div class="col-6 col-md-3">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted">Mode</span>
-                            <select class="form-select fw-bold border-0 shadow-sm" id="orb_mode_input">
+                        <div class="input-group input-group-sm shadow-sm">
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Mode</span>
+                            <select class="form-select fw-bold border-0" id="orb_mode_input" style="font-size: 0.8rem;">
                                 <option value="PAPER" selected>📄 PAPER</option>
                                 <option value="LIVE">🔴 LIVE</option>
                                 <option value="SHADOW">👻 SHADOW</option>
@@ -31,17 +32,17 @@
                     </div>
 
                     <div class="col-6 col-md-3">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted">Lots</span>
-                            <input type="number" id="orb_lots_input" class="form-control text-center fw-bold border-0 shadow-sm" 
-                                   value="2" min="2" step="2" onchange="updateOrbCalc()">
+                        <div class="input-group input-group-sm shadow-sm">
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Lots</span>
+                            <input type="number" id="orb_lots_input" class="form-control text-center fw-bold border-0" 
+                                   value="2" min="2" step="2" onchange="updateOrbCalc()" style="font-size: 0.9rem;">
                         </div>
                     </div>
 
                     <div class="col-6 col-md-3">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted">Dir</span>
-                            <select class="form-select fw-bold border-0 shadow-sm" id="orb_direction">
+                        <div class="input-group input-group-sm shadow-sm">
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Dir</span>
+                            <select class="form-select fw-bold border-0" id="orb_direction" style="font-size: 0.8rem;">
                                 <option value="BOTH" selected>BOTH</option>
                                 <option value="CE">CE Only</option>
                                 <option value="PE">PE Only</option>
@@ -50,48 +51,55 @@
                     </div>
 
                     <div class="col-6 col-md-3">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted">Stop</span>
-                            <input type="time" id="orb_cutoff" class="form-control fw-bold border-0 shadow-sm" value="13:00">
+                        <div class="input-group input-group-sm shadow-sm">
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Stop</span>
+                            <input type="time" id="orb_cutoff" class="form-control fw-bold border-0" value="13:00" style="font-size: 0.9rem;">
                         </div>
                     </div>
 
                     <div class="col-12">
-                        <div class="bg-white rounded p-2 shadow-sm d-flex flex-wrap gap-3 align-items-center justify-content-between">
+                        <div class="bg-white rounded p-2 shadow-sm d-flex flex-wrap align-items-center justify-content-between gap-2">
                             
-                            <div class="d-flex align-items-center gap-2">
+                            <div class="d-flex align-items-center gap-2 flex-grow-1">
                                 <div class="form-check form-switch m-0">
                                     <input class="form-check-input" type="checkbox" id="orb_reentry_same_sl">
-                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl">Re-Entry (Same Side SL)</label>
+                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl" style="font-size: 0.75rem;">Re-Entry (SL)</label>
                                 </div>
-                                <select class="form-select form-select-sm border-0 bg-light fw-bold" id="orb_reentry_same_filter" style="width: 80px; font-size: 0.7rem;">
+                                <select class="form-select form-select-sm border-0 bg-light fw-bold py-0" id="orb_reentry_same_filter" style="width: 70px; font-size: 0.7rem; height: 22px;">
                                     <option value="BOTH">BOTH</option>
-                                    <option value="CE">CE Only</option>
-                                    <option value="PE">PE Only</option>
+                                    <option value="CE">CE</option>
+                                    <option value="PE">PE</option>
                                 </select>
                             </div>
 
-                            <div class="form-check form-switch m-0 border-start ps-3">
+                            <div class="form-check form-switch m-0 border-start ps-3 flex-grow-1">
                                 <input class="form-check-input" type="checkbox" id="orb_reentry_opposite">
-                                <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite">Re-Entry (Opposite Side)</label>
+                                <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite" style="font-size: 0.75rem;">Re-Entry (Opp)</label>
                             </div>
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-auto text-end text-md-center">
-                        <div class="bg-white rounded px-3 py-1 shadow-sm h-100 d-flex flex-column justify-content-center">
-                            <small class="d-block text-muted" style="font-size: 0.65rem;">TOTAL QTY</small>
-                            <span id="orb_total_qty" class="fw-bold text-success">--</span>
-                        </div>
-                    </div>
+                    <div class="col-12">
+                        <div class="row g-2">
+                            <div class="col-6 col-md-auto ms-md-auto">
+                                <div class="bg-white rounded px-3 py-2 shadow-sm h-100 d-flex flex-column justify-content-center text-center">
+                                    <small class="d-block text-muted fw-bold" style="font-size: 0.65rem;">TOTAL QTY</small>
+                                    <span id="orb_total_qty" class="fw-bold text-success" style="font-size: 1rem;">--</span>
+                                </div>
+                            </div>
 
-                    <div class="col-6 col-md-auto text-end">
-                        <button class="btn btn-success fw-bold btn-sm px-4 w-100 shadow-sm py-2" id="btn_orb_start" onclick="toggleOrb('start')">
-                            <i class="fas fa-play"></i> START
-                        </button>
-                        <button class="btn btn-danger fw-bold btn-sm px-4 w-100 shadow-sm d-none py-2" id="btn_orb_stop" onclick="toggleOrb('stop')">
-                            <i class="fas fa-stop"></i> STOP
-                        </button>
+                            <div class="col-6 col-md-auto">
+                                <button class="btn btn-success fw-bold w-100 shadow-sm h-100 d-flex align-items-center justify-content-center gap-2" 
+                                        id="btn_orb_start" onclick="toggleOrb('start')">
+                                    <i class="fas fa-play"></i> <span>START</span>
+                                </button>
+                                
+                                <button class="btn btn-danger fw-bold w-100 shadow-sm h-100 d-none align-items-center justify-content-center gap-2" 
+                                        id="btn_orb_stop" onclick="toggleOrb('stop')">
+                                    <i class="fas fa-stop"></i> <span>STOP</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                 </div>

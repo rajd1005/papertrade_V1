@@ -129,7 +129,7 @@ class ORBStrategyManager:
             self.signal_state = "NONE"
             self.trade_active = False
             self.session_pnl = 0.0
-            self.profit_lock_level = -999999
+            self.profit_lock_level = -999999 
             self.is_profit_locked = False
 
             self.active = True
@@ -243,7 +243,7 @@ class ORBStrategyManager:
             if api_expiry:
                 expiry_str = api_expiry
             else:
-                # Nifty Expiry is THURSDAY (3)
+                # FIX: Nifty Expiry is THURSDAY (3)
                 days_ahead = (3 - target_date.weekday() + 7) % 7 
                 expiry_date = target_date + datetime.timedelta(days=days_ahead)
                 expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -310,7 +310,7 @@ class ORBStrategyManager:
                 if risk_points < 5: risk_points = 5
                 
                 # B. Build Target Controls & Custom Targets
-                # --- EXACT MATCH OF LIVE BOT LOGIC ---
+                # --- FIXED: PASS LOT *COUNT* TO CONTROLS, NOT QUANTITY ---
                 custom_targets = []
                 t_controls = []
                 
@@ -327,13 +327,13 @@ class ORBStrategyManager:
                     is_full = leg.get('full', False)
                     trail = leg.get('trail', False)
                     
-                    # Target Exit Quantity (Live Logic: 1000 for full, else lots * lot_size)
-                    exit_qty = 1000 if is_full else (lots * sim_lot_size)
+                    # FIX: Pass Lot Count to controls (Replay engine multiplies it by lot_size)
+                    control_lots = 1000 if is_full else lots
                     
                     custom_targets.append(t_price)
                     t_controls.append({
                         'enabled': True,
-                        'lots': exit_qty,
+                        'lots': control_lots, 
                         'trail_to_entry': trail
                     })
                 
@@ -341,7 +341,7 @@ class ORBStrategyManager:
                     custom_targets.append(0)
                     t_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
-                # Calculate Total Entry Qty
+                # Calculate Total Entry Qty (This remains Qty, as per Live logic)
                 final_entry_lots = sum([leg.get('lots', 0) for leg in self.legs_config if leg.get('active', False)])
                 total_qty = final_entry_lots * sim_lot_size
                 

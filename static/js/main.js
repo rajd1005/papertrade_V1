@@ -104,9 +104,16 @@ function loadOrbStatus() {
             
             // Lock Controls & Sync Value (Only if not focused to avoid typing interruption)
             if (!$('#orb_lots_input').is(':focus')) $('#orb_lots_input').val(data.current_lots);
-            $('#orb_lots_input').prop('disabled', true);
             
-            $('#orb_mode_input').val(data.current_mode).prop('disabled', true);
+            // Sync new fields
+            if (!$('#orb_direction').is(':focus')) $('#orb_direction').val(data.current_direction);
+            if (!$('#orb_cutoff').is(':focus')) $('#orb_cutoff').val(data.current_cutoff);
+
+            // Disable Inputs while Running
+            $('#orb_lots_input').prop('disabled', true);
+            $('#orb_mode_input').prop('disabled', true);
+            $('#orb_direction').prop('disabled', true);
+            $('#orb_cutoff').prop('disabled', true);
             
         } else {
             $('#orb_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
@@ -118,6 +125,8 @@ function loadOrbStatus() {
             // Unlock Controls
             $('#orb_lots_input').prop('disabled', false);
             $('#orb_mode_input').prop('disabled', false);
+            $('#orb_direction').prop('disabled', false);
+            $('#orb_cutoff').prop('disabled', false);
         }
         
         // 3. Recalculate Totals
@@ -141,6 +150,8 @@ function updateOrbCalc() {
 function toggleOrb(action) {
     let lots = parseInt($('#orb_lots_input').val()) || 2;
     let mode = $('#orb_mode_input').val(); // Get selected mode (PAPER/LIVE/SHADOW)
+    let direction = $('#orb_direction').val();
+    let cutoff = $('#orb_cutoff').val();
 
     if (action === 'start') {
         // VALIDATION: Minimum 2 Lots
@@ -155,6 +166,11 @@ function toggleOrb(action) {
             alert("⚠️ Lots adjusted to " + lots + ". Must be a multiple of 2.");
             $('#orb_lots_input').val(lots);
         }
+        
+        if(!cutoff) {
+            alert("Please select a valid Cutoff Time.");
+            return;
+        }
     }
 
     // Disable buttons to prevent double-click
@@ -163,7 +179,9 @@ function toggleOrb(action) {
     let payload = {
         action: action,
         lots: lots,
-        mode: mode
+        mode: mode,
+        direction: direction,
+        cutoff: cutoff
     };
 
     $.ajax({

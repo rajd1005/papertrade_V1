@@ -82,7 +82,15 @@ class ORBStrategyManager:
             # 3. New Re-entry Settings
             self.reentry_same_sl = bool(re_sl)
             self.reentry_same_filter = str(re_sl_side).upper()
-            self.reentry_opposite = bool(re_opp)
+            
+            # --- SANITIZATION: Force Disable Opposite if Direction is NOT Both ---
+            # Even if UI sends True, we force False here to prevent logic conflict.
+            if self.target_direction != "BOTH":
+                self.reentry_opposite = False
+                print(f"⚠️ [ORB] Override: 'Re-Entry Opposite' disabled because Direction is {self.target_direction}")
+            else:
+                self.reentry_opposite = bool(re_opp)
+            # -------------------------------------------------------------------
 
             # 4. Reset State
             self.is_done_for_day = False
@@ -198,7 +206,9 @@ class ORBStrategyManager:
         Master Logic for Permissions.
         side: 'CE' or 'PE'
         """
-        # 1. Global Direction Filter
+        # 1. Global Direction Filter (FIRST LINE OF DEFENSE)
+        # If User selected CE, and this is PE, we return False immediately.
+        # This overrides any Re-entry Logic below.
         if self.target_direction != "BOTH" and self.target_direction != side:
             return False
 
@@ -389,11 +399,3 @@ class ORBStrategyManager:
                 self.current_trade_id = None
                 self.last_trade_status = status 
                 self.signal_state = "NONE"
-
-                # Check if we are done based on rules
-                # We do NOT force is_done_for_day=True here anymore. 
-                # Instead, we rely on _can_trade_side() to block future signals if limits are reached.
-                # However, if both CE and PE re-entries are exhausted, we can mark done.
-                
-                # Simple logic: If no more trades are logically possible, stop loop to save resources.
-                # (Optional optimization, but let's keep loop running to allow _can_trade_side to decide dynamically)

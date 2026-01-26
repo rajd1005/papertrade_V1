@@ -75,7 +75,7 @@
                     
                     <div class="col-6 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2" data-bs-toggle="tooltip" title="PAPER: Virtual | LIVE: Real Exec | SHADOW: Live Logic/Paper Exec">Mode</span>
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Mode</span>
                             <select class="form-select fw-bold border-0" id="orb_mode_input" style="font-size: 0.8rem;">
                                 <option value="PAPER" selected>📄 PAPER</option>
                                 <option value="LIVE">🔴 LIVE</option>
@@ -86,7 +86,7 @@
 
                     <div class="col-6 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2" data-bs-toggle="tooltip" title="Trade Direction: Both Sides, Calls Only, or Puts Only">Dir</span>
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Dir</span>
                             <select class="form-select fw-bold border-0" id="orb_direction" style="font-size: 0.8rem;">
                                 <option value="BOTH" selected>BOTH</option>
                                 <option value="CE">CE Only</option>
@@ -97,7 +97,7 @@
 
                     <div class="col-12 col-md-4">
                         <div class="input-group input-group-sm shadow-sm">
-                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2" data-bs-toggle="tooltip" title="No new signals will be taken after this time">Stop</span>
+                            <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Stop</span>
                             <input type="time" id="orb_cutoff" class="form-control fw-bold border-0" value="13:00" style="font-size: 0.9rem;">
                         </div>
                     </div>
@@ -107,9 +107,9 @@
                             <div class="d-flex align-items-center gap-2 flex-grow-1">
                                 <div class="form-check form-switch m-0">
                                     <input class="form-check-input" type="checkbox" id="orb_reentry_same_sl">
-                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl" style="font-size: 0.75rem;" data-bs-toggle="tooltip" title="If SL hits, allow re-entry on SAME side? (Max 2 trades/side)">Re-Entry (SL)</label>
+                                    <label class="form-check-label small fw-bold text-muted" for="orb_reentry_same_sl" style="font-size: 0.75rem;">Re-Entry (SL)</label>
                                 </div>
-                                <select class="form-select form-select-sm border-0 bg-light fw-bold py-0" id="orb_reentry_same_filter" style="width: 70px; font-size: 0.7rem; height: 22px;" data-bs-toggle="tooltip" title="Filter Re-Entry Side">
+                                <select class="form-select form-select-sm border-0 bg-light fw-bold py-0" id="orb_reentry_same_filter" style="width: 70px; font-size: 0.7rem; height: 22px;">
                                     <option value="BOTH">BOTH</option>
                                     <option value="CE">CE</option>
                                     <option value="PE">PE</option>
@@ -118,7 +118,7 @@
 
                             <div class="form-check form-switch m-0 border-start ps-3 flex-grow-1">
                                 <input class="form-check-input" type="checkbox" id="orb_reentry_opposite">
-                                <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite" style="font-size: 0.75rem;" data-bs-toggle="tooltip" title="If SL hits, allow REVERSE trade? (Only if Dir=BOTH)">Re-Entry (Opp)</label>
+                                <label class="form-check-label small fw-bold text-muted" for="orb_reentry_opposite" style="font-size: 0.75rem;">Re-Entry (Opp)</label>
                             </div>
                         </div>
                     </div>
@@ -208,6 +208,24 @@
                                     <input type="number" id="orb_profit_trail" class="form-control form-control-sm text-center p-1" placeholder="Step" style="font-size: 0.75rem;" title="Trail Step">
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="bg-white rounded p-2 shadow-sm border border-warning">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="fw-bold text-warning" style="font-size: 0.7rem;">STRATEGY BACKTEST / SIMULATION</small>
+                            </div>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-white border-0 fw-bold text-muted px-2">Date</span>
+                                <input type="date" id="orb_backtest_date" class="form-control form-control-sm fw-bold">
+                                <button class="btn btn-warning fw-bold text-white btn-sm" onclick="runOrbBacktest()">
+                                    <i class="fas fa-history"></i> Run Backtest
+                                </button>
+                            </div>
+                            <small class="d-block mt-1 text-muted fst-italic" style="font-size: 0.65rem;">
+                                Simulates ORB signal on selected date using current settings.
+                            </small>
                         </div>
                     </div>
 

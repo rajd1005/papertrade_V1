@@ -3,6 +3,11 @@ let orbLotSize = 50;
 let orbCheckInterval = null;
 let isOrbFirstLoad = true; // Flag to track initial load for sync logic
 
+// --- MOMENTUM GLOBAL STATE ---
+let momLotSize = 50;
+let momCheckInterval = null;
+let isMomFirstLoad = true;
+
 // --- 1. STRICT ENFORCEMENT LOGIC ---
 // Defined globally so it can be called from anywhere (Poller, Events, Init)
 function enforceStrictReEntryRules() {
@@ -46,6 +51,22 @@ $(document).ready(function() {
         loadOrbStatus();
         // Poll status every 3 seconds
         orbCheckInterval = setInterval(loadOrbStatus, 3000);
+    }
+
+    // --- MOMENTUM STRATEGY INIT ---
+    if ($('#mom_status_badge').length) {
+        // Set Default Date for Momentum Backtest
+        let now = new Date(); 
+        const offset = now.getTimezoneOffset(); 
+        let localDate = new Date(now.getTime() - (offset*60*1000));
+        $('#mom_backtest_date').val(localDate.toISOString().slice(0,10));
+
+        loadMomStatus();
+        // Poll status every 3 seconds
+        momCheckInterval = setInterval(loadMomStatus, 3000);
+
+        // Bind Calculation Events for Momentum
+        $('.mom-leg-input, .mom-leg-check').on('input change', updateMomCalc);
     }
     
     // --- 2. BINDINGS FOR STRICT RULES & CALCULATIONS ---
@@ -594,4 +615,179 @@ if (typeof showFloatingAlert === 'undefined') {
         }
         setTimeout(() => { $('.alert').last().alert('close'); }, 5000);
     };
+}
+
+// ==========================================
+// MOMENTUM STRATEGY FUNCTIONS (NEW)
+// ==========================================
+
+function loadMomStatus() {
+    $.get('/api/momentum/params', function(data) {
+        if (data.lot_size && data.lot_size > 0) {
+            momLotSize = data.lot_size;
+            $('#mom_lot_size').text(momLotSize);
+        }
+
+        let shouldSync = data.active || isMomFirstLoad;
+
+        if (shouldSync) {
+            // Legs Sync
+            if(data.legs_config && Array.isArray(data.legs_config)) {
+                for(let i=0; i<3; i++) {
+                    let leg = data.legs_config[i];
+                    if(leg) {
+                        if (!$(`#mom_leg${i+1}_lots`).is(':focus')) $(`#mom_leg${i+1}_lots`).val(leg.lots);
+                        if (!$(`#mom_leg${i+1}_ratio`).is(':focus')) $(`#mom_leg${i+1}_ratio`).val(leg.ratio);
+                        $(`#mom_leg${i+1}_active`).prop('checked', leg.active !== false);
+                        $(`#mom_leg${i+1}_full`).prop('checked', leg.full);
+                        $(`#mom_leg${i+1}_trail`).prop('checked', leg.trail);
+                    }
+                }
+            }
+
+            // Risk Sync
+            let r = data.risk || {};
+            if (!$('#mom_max_loss').is(':focus')) $('#mom_max_loss').val(r.max_loss);
+            if (!$('#mom_trail_pts').is(':focus')) $('#mom_trail_pts').val(r.trail_pts);
+            $('#mom_sl_to_entry').val(r.sl_entry);
+            
+            // PnL Sync
+            let pnl = parseFloat(r.session_pnl || 0);
+            $('#mom_session_pnl').text(pnl.toFixed(2));
+            if(pnl >= 0) $('#mom_session_pnl').removeClass('text-danger').addClass('text-success');
+            else $('#mom_session_pnl').removeClass('text-success').addClass('text-danger');
+
+            // Main Params Sync
+            if (!$('#mom_mode_input').is(':focus')) $('#mom_mode_input').val(data.current_mode);
+            if (!$('#mom_direction').is(':focus')) $('#mom_direction').val(data.current_direction);
+        }
+
+        // State UI
+        if (data.active) {
+            $('#mom_status_badge').removeClass('bg-secondary').addClass('bg-success').text('RUNNING');
+            $('#btn_mom_start').addClass('d-none');
+            $('#btn_mom_stop').removeClass('d-none');
+            $('.mom-leg-input, .mom-leg-check, .mom-full-check, .mom-trail-check').prop('disabled', true); 
+            $('#mom_mode_input, #mom_direction, #mom_cutoff').prop('disabled', true);
+            $('#mom_max_loss, #mom_trail_pts, #mom_sl_to_entry').prop('disabled', true);
+        } else {
+            $('#mom_status_badge').removeClass('bg-success').addClass('bg-secondary').text('STOPPED');
+            $('#btn_mom_start').removeClass('d-none');
+            $('#btn_mom_stop').addClass('d-none');
+            $('.mom-leg-input, .mom-leg-check, .mom-full-check, .mom-trail-check').prop('disabled', false); 
+            $('#mom_mode_input, #mom_direction, #mom_cutoff').prop('disabled', false);
+            $('#mom_max_loss, #mom_trail_pts, #mom_sl_to_entry').prop('disabled', false);
+        }
+        
+        updateMomCalc();
+        isMomFirstLoad = false;
+    });
+}
+
+function updateMomCalc() {
+    let l1 = $('#mom_leg1_active').is(':checked') ? (parseInt($('#mom_leg1_lots').val()) || 0) : 0;
+    let l2 = $('#mom_leg2_active').is(':checked') ? (parseInt($('#mom_leg2_lots').val()) || 0) : 0;
+    let l3 = $('#mom_leg3_active').is(':checked') ? (parseInt($('#mom_leg3_lots').val()) || 0) : 0;
+    let totalLots = l1 + l2 + l3;
+    $('#mom_calc_total').text(totalLots);
+    $('#mom_total_qty').text(totalLots * momLotSize);
+}
+
+function toggleMom(action) {
+    let mode = $('#mom_mode_input').val(); 
+    let direction = $('#mom_direction').val();
+    let cutoff = $('#mom_cutoff').val();
+
+    let legs_config = [];
+    for(let i=1; i<=3; i++) {
+        legs_config.push({
+            active: $(`#mom_leg${i}_active`).is(':checked'),
+            lots: parseInt($(`#mom_leg${i}_lots`).val()) || 0,
+            full: $(`#mom_leg${i}_full`).is(':checked'),
+            ratio: parseFloat($(`#mom_leg${i}_ratio`).val()) || 0.0,
+            trail: $(`#mom_leg${i}_trail`).is(':checked')
+        });
+    }
+
+    let risk = {
+        max_loss: parseFloat($('#mom_max_loss').val()) || 0,
+        trail_pts: parseFloat($('#mom_trail_pts').val()) || 0,
+        sl_entry: parseInt($('#mom_sl_to_entry').val()) || 0
+    };
+
+    let totalLots = 0;
+    legs_config.forEach(l => { if(l.active) totalLots += l.lots; });
+
+    if (action === 'start') {
+        if (totalLots < 1) { alert("Total Active Lots cannot be 0."); return; }
+    }
+
+    $('#btn_mom_start, #btn_mom_stop').prop('disabled', true);
+    
+    $.ajax({
+        url: '/api/momentum/toggle',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            action: action,
+            mode: mode,
+            direction: direction,
+            legs_config: legs_config,
+            risk: risk
+        }),
+        success: function(res) {
+            if(window.showFloatingAlert) showFloatingAlert(res.message, res.status === 'success' ? 'success' : 'danger');
+            else alert(res.message);
+            loadMomStatus();
+        },
+        complete: function() { $('#btn_mom_start, #btn_mom_stop').prop('disabled', false); }
+    });
+}
+
+function runMomBacktest() {
+    let date = $('#mom_backtest_date').val();
+    if(!date) { alert("Please select a date."); return; }
+    
+    let btn = $(event.target);
+    let originalText = btn.html();
+    btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Running...');
+    
+    // Scrape Settings for Simulation
+    let legs_config = [];
+    for(let i=1; i<=3; i++) {
+        legs_config.push({
+            active: $(`#mom_leg${i}_active`).is(':checked'),
+            lots: parseInt($(`#mom_leg${i}_lots`).val()) || 0,
+            full: $(`#mom_leg${i}_full`).is(':checked'),
+            ratio: parseFloat($(`#mom_leg${i}_ratio`).val()) || 0.0,
+            trail: $(`#mom_leg${i}_trail`).is(':checked')
+        });
+    }
+    let risk = {
+        trail_pts: parseFloat($('#mom_trail_pts').val()) || 0,
+        sl_entry: parseInt($('#mom_sl_to_entry').val()) || 0
+    };
+
+    $.ajax({
+        url: '/api/momentum/backtest',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ 
+            date: date,
+            execute: true, // Simulation implies execution in paper mode
+            legs_config: legs_config,
+            risk: risk
+        }),
+        success: function(res) {
+            if(res.status === 'success') {
+                if(window.showFloatingAlert) showFloatingAlert(res.message, 'success');
+                else alert(res.message);
+                if(typeof updateData === 'function') updateData(); 
+            } else {
+                alert(res.message);
+            }
+        },
+        error: function(err) { alert("Error: " + err.statusText); },
+        complete: function() { btn.prop('disabled', false).html(originalText); }
+    });
 }

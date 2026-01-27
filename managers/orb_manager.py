@@ -146,6 +146,7 @@ class ORBStrategyManager:
     def run_backtest(self, date_str, auto_execute=False):
         """
         Runs the 7-Step ORB strategy logic on a past date.
+        Returns specific failure reasons if no trade is found.
         """
         try:
             # 0. Setup
@@ -186,6 +187,9 @@ class ORBStrategyManager:
             trigger_price = 0
             stop_loss_price = 0
             
+            # --- FAILURE REASON TRACKING ---
+            no_setup_reason = "Spot Range (09:15) never broken"
+            
             # Loop for Signal (Step 3)
             for i in range(1, len(spot_df)):
                 c = spot_df.iloc[i]
@@ -202,15 +206,16 @@ class ORBStrategyManager:
                     print(f"🔎 Spot Signal {signal_side} at {c_time}")
                     
                     # Step 5: Check Futures Volume (3 Candles: Current, Prev1, Prev2)
-                    # NOTE: In backtest, getting historical FUT token is hard. 
-                    # We will skip strict token fetch and assume if data exists.
-                    # If you strictly need this, you must maintain a DB of historical tokens.
-                    # For now, we simulate the "Volume Check" passing if we can't fetch FUT.
-                    vol_check_passed = True # Placeholder for backtest limitation
+                    # NOTE: Backtest Limitation - Assuming Pass if FUT data missing.
+                    # Ideally, check real FUT data if available.
+                    vol_check_passed = True 
+                    
+                    # NOTE: If you had historical FUT data, check here:
+                    # if not (v_curr > v_prev1 > v_prev2): vol_check_passed = False
                     
                     if not vol_check_passed:
-                        print("❌ Volume Check Failed (Simulated)")
-                        return {"status": "info", "message": f"Signal at {c_time} but Futures Volume Condition Failed."}
+                        msg = f"Signal at {c_time} rejected: Futures Volume not increasing."
+                        return {"status": "info", "message": msg}
 
                     # Step 6: Search Option Candle & Check Risk
                     strike_diff = 50
@@ -218,7 +223,9 @@ class ORBStrategyManager:
                     atm_strike = round(spot_ltp / strike_diff) * strike_diff
                     
                     sim_symbol = smart_trader.get_exact_symbol("NIFTY", expiry_str, atm_strike, signal_side)
-                    if not sim_symbol: continue
+                    if not sim_symbol: 
+                        no_setup_reason = f"Option Symbol not found for {atm_strike} {signal_side}"
+                        continue
                     
                     opt_token = smart_trader.get_instrument_token(sim_symbol, "NFO")
                     if not opt_token: continue
@@ -245,7 +252,8 @@ class ORBStrategyManager:
                     
                     # Risk Check <= 15
                     if risk_pts > 15:
-                        return {"status": "info", "message": f"❌ Trade Cancelled: Risk {risk_pts:.2f} > 15 Points at {c_time}"}
+                        msg = f"❌ Trade Cancelled: Risk {risk_pts:.2f} > 15 Points at {c_time}"
+                        return {"status": "info", "message": msg}
                     
                     # Step 7: Wait for Trigger (Next Candle Breakout)
                     trigger_price = opt_high
@@ -267,9 +275,8 @@ class ORBStrategyManager:
                             trigger_hit = True
                             trigger_time = oc['date']
                             break
-                        if float(oc['low']) < stop_loss_price:
-                            # If SL hit before Entry -> Invalid? Usually yes.
-                            pass 
+                        # Note: If Low < SL before High > Trigger, trade is usually invalid or not taken.
+                        # Assuming strictly "Wait for Breakout".
                             
                     if trigger_hit:
                         trade_found = True
@@ -278,10 +285,11 @@ class ORBStrategyManager:
                         print(f"✅ Triggered at {trigger_time} | Price: {trigger_price}")
                         break
                     else:
-                        return {"status": "info", "message": f"Signal at {c_time} but Option High ({trigger_price}) never broken."}
+                        msg = f"Signal at {c_time} Valid, but Trigger Price ({trigger_price}) never hit by End of Day."
+                        return {"status": "info", "message": msg}
 
             if not trade_found:
-                return {"status": "info", "message": f"No Valid Setup found on {date_str}"}
+                return {"status": "info", "message": f"No Valid Setup on {date_str}. Reason: {no_setup_reason}"}
 
             # Fallback Check
             if sim_lot_size <= 0:
@@ -404,7 +412,7 @@ class ORBStrategyManager:
                     if not self.is_done_for_day:
                         print(f"⏰ [ORB] Cutoff Reached.")
                         self.is_done_for_day = True
-                        self.stop_reason = "CUTOFF_TIME"
+                        self.stop_reason = "Cutoff Time Reached"
                     time.sleep(60)
                     continue
                 
@@ -413,7 +421,7 @@ class ORBStrategyManager:
                     if not self.is_done_for_day:
                         print(f"🛑 [ORB] Max Daily Loss Hit: {self.session_pnl}")
                         self.is_done_for_day = True
-                        self.stop_reason = "MAX_LOSS_HIT"
+                        self.stop_reason = "Max Daily Loss Hit"
                     time.sleep(60)
                     continue
 
@@ -501,7 +509,7 @@ class ORBStrategyManager:
         if not volume_ok:
             print(f"⚠️ [ORB] {signal_side} Signal at {sig_candle_spot['date']} but Volume Check Failed. (V:{v_sig} > {v_p1} > {v_p2} is False). Cancelled for Day.")
             self.is_done_for_day = True
-            self.stop_reason = "VOL_CHECK_FAIL"
+            self.stop_reason = "Futures Volume Not Increasing"
             return
 
         # --- Step 6: Option Chart & Risk ---
@@ -545,7 +553,7 @@ class ORBStrategyManager:
             if risk > 15:
                 print(f"⚠️ [ORB] {signal_side} Signal Risk too high ({risk} > 15). Cancelled for Day.")
                 self.is_done_for_day = True
-                self.stop_reason = "RISK_CHECK_FAIL"
+                self.stop_reason = f"Option Risk Too High ({risk:.2f} pts)"
                 return
             
             # --- Valid Signal! Move to Trigger State ---

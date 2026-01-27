@@ -264,8 +264,8 @@ class ORBStrategyManager:
                     risk_pts = opt_high - opt_low
                     
                     # Risk Check <= 15
-                    if risk_pts > 100:
-                        msg = f"❌ Trade Cancelled: Risk {risk_pts:.2f} > 15 Points at {c_time}"
+                    if risk_pts > 15:
+                        msg = f"❌ Trade Cancelled: {sim_symbol} Risk {risk_pts:.2f} > 15 Points at {c_time}"
                         return {"status": "info", "message": msg}
                     
                     # Step 7: Wait for Trigger (Next Candle Breakout)
@@ -296,7 +296,7 @@ class ORBStrategyManager:
                         print(f"✅ Triggered at {trigger_time} | Price: {trigger_price}")
                         break
                     else:
-                        msg = f"Signal at {c_time} Valid, but Trigger Price ({trigger_price}) never hit by End of Day."
+                        msg = f"Signal at {c_time} for {opt_symbol} Valid (High: {trigger_price}), but Trigger Price never hit by End of Day."
                         return {"status": "info", "message": msg}
 
             if not trade_found:
@@ -346,17 +346,13 @@ class ORBStrategyManager:
                 if total_qty <= 0: total_qty = sim_lot_size 
                 
                 # --- FIX DATE FORMAT FOR REPLAY ENGINE ---
-                # Replay engine expects "%Y-%m-%dT%H:%M" (HTML datetime-local format)
-                # entry_candle_time is likely "2026-01-19 10:05:00+05:30" (datetime object)
-                
                 clean_entry_str = ""
                 if isinstance(entry_candle_time, str):
-                    # Try to parse string and reformat
                     try:
                         dt_obj = datetime.datetime.strptime(entry_candle_time.split('+')[0].strip(), "%Y-%m-%d %H:%M:%S")
                         clean_entry_str = dt_obj.strftime("%Y-%m-%dT%H:%M")
                     except:
-                        clean_entry_str = entry_candle_time.replace(" ", "T")[:16] # Basic fallback
+                        clean_entry_str = entry_candle_time.replace(" ", "T")[:16] 
                 elif hasattr(entry_candle_time, 'strftime'):
                     clean_entry_str = entry_candle_time.strftime("%Y-%m-%dT%H:%M")
                 
@@ -366,7 +362,7 @@ class ORBStrategyManager:
                 res = replay_engine.import_past_trade(
                     self.kite,
                     symbol=opt_symbol,
-                    entry_dt_str=clean_entry_str, # FIXED FORMAT
+                    entry_dt_str=clean_entry_str, 
                     qty=total_qty,
                     entry_price=entry_est,
                     sl_price=stop_loss_price,
@@ -396,7 +392,7 @@ class ORBStrategyManager:
         except Exception as e:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
-    # ... (Rest of file unchanged) ...
+    # ... (Helper methods unchanged) ...
     def _get_nifty_futures_token(self):
         try:
             instruments = self.kite.instruments("NFO")
@@ -521,11 +517,6 @@ class ORBStrategyManager:
         if not signal_side: return
 
         # --- Step 5: Volume Check (Futures) ---
-        # "previous 2 candle Volume... increasing constantly"
-        # Implies: Vol[-2] > Vol[-3] > Vol[-4] ? 
-        # Or Vol(Signal) > Vol(Prev1) > Vol(Prev2)
-        # Using indices: Signal is -2. Prev1 is -3. Prev2 is -4.
-        
         v_sig = float(fut_df.iloc[-2]['volume'])
         v_p1 = float(fut_df.iloc[-3]['volume'])
         v_p2 = float(fut_df.iloc[-4]['volume'])
@@ -554,11 +545,6 @@ class ORBStrategyManager:
         # Fetch Option Candle for that specific time
         opt_token = smart_trader.get_instrument_token(symbol_name, "NFO")
         c_time = sig_candle_spot['date']
-        
-        # We need OHLC for this specific timestamp
-        # In live loop, 'sig_candle_spot' is the just-closed candle.
-        # We can try to fetch it specifically or rely on LTP if strict OHLC fetch is slow.
-        # Strict way: Fetch 1 candle.
         
         try:
             # Fix TZ

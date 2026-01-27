@@ -562,8 +562,8 @@ class ORBStrategyManager:
             risk = opt_h - opt_l
             
             # Risk Check
-            if risk > 15:
-                print(f"⚠️ [ORB] {signal_side} Signal Risk too high ({risk} > 15). Cancelled for Day.")
+            if risk > 100:
+                print(f"⚠️ [ORB] {signal_side} Signal Risk too high ({risk} > 100). Cancelled for Day.")
                 self.is_done_for_day = True
                 self.stop_reason = f"Option Risk Too High ({risk:.2f} pts)"
                 return

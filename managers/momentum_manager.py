@@ -44,6 +44,13 @@ class MomentumStrategyManager:
         self.current_trade_id = None
         self.trade_active = False
 
+        # --- SIGNAL STATE MACHINE (New for Trigger Logic) ---
+        self.signal_stage = "NONE"      # NONE, WAIT_TRIGGER_CE, WAIT_TRIGGER_PE
+        self.trigger_spot_price = 0.0   # The High/Low to break
+        self.sl_spot_price = 0.0        # The Low/High for SL (Invalidation)
+        self.pending_symbol = None      # The Option Symbol to Buy
+        self.signal_candle_time = None
+
     def start(self, mode="PAPER", direction="BOTH", legs_config=None, risk_settings=None):
         if not self.active:
             # 1. Fetch Lot Size
@@ -67,6 +74,11 @@ class MomentumStrategyManager:
             self.stop_reason = ""
             self.trade_active = False
             self.current_trade_id = None
+            
+            # Reset Trigger State
+            self.signal_stage = "NONE"
+            self.trigger_spot_price = 0
+            self.pending_symbol = None
             
             # 4. Start Loop
             self.active = True
@@ -138,8 +150,6 @@ class MomentumStrategyManager:
             trade_details = None
             
             # 3. Loop through candles to find SETUP
-            # We iterate looking for a Signal Candle, then a Trigger Candle
-            
             rows = day_df.reset_index(drop=True)
             
             for i in range(len(rows) - 1): # -1 because we need a next candle for trigger
@@ -159,7 +169,7 @@ class MomentumStrategyManager:
                     trigger_price = float(curr['high'])
                     sl_price = float(curr['low']) # Swing Low (candle low)
                 
-                # SELL (PE) Setup
+                # BUY (PE) Setup for Bearish View
                 elif close < vwap and close < ema and rsi < self.rsi_sell:
                     signal_side = "PE"
                     trigger_price = float(curr['low'])
@@ -167,13 +177,8 @@ class MomentumStrategyManager:
                     
                 if signal_side:
                     # Check Next Candles for Trigger
-                    # We check the VERY NEXT candle or subsequent? 
-                    # Strategy says: "Wait for Breakout Candle... Entry when NEXT candle breaks"
-                    # For simplicity in backtest: Check if ANY subsequent candle in next 30 mins breaks it.
-                    
                     found_trigger = False
                     trigger_time = None
-                    execution_price = 0
                     
                     # Look ahead up to end of day
                     for j in range(i + 1, len(rows)):
@@ -183,13 +188,15 @@ class MomentumStrategyManager:
                             if float(future['high']) > trigger_price:
                                 found_trigger = True
                                 trigger_time = future['date']
-                                execution_price = trigger_price # Limit entry assumption
                                 break
+                            if float(future['low']) < sl_price: # SL hit before trigger
+                                break 
                         elif signal_side == "PE":
                             if float(future['low']) < trigger_price:
                                 found_trigger = True
                                 trigger_time = future['date']
-                                execution_price = trigger_price
+                                break
+                            if float(future['high']) > sl_price: # SL hit before trigger
                                 break
                                 
                     if found_trigger:
@@ -202,7 +209,7 @@ class MomentumStrategyManager:
                         
                         opt_symbol = smart_trader.get_exact_symbol("NIFTY", expiry_str, atm_strike, signal_side)
                         
-                        # Fallback Expiry
+                        # Fallback Expiry logic
                         if not opt_symbol:
                              det = smart_trader.get_symbol_details(self.kite, "NIFTY")
                              if det and 'opt_expiries' in det:
@@ -210,24 +217,14 @@ class MomentumStrategyManager:
                                  if valid:
                                      opt_symbol = smart_trader.get_exact_symbol("NIFTY", valid[0], atm_strike, signal_side)
 
-                        # Estimate Option Price (Delta 0.5 approx)
-                        # In backtest we might not have historical option data easily.
-                        # We simulate price as: Spot Move * 0.5
-                        # Or better: Just log the Spot Trade for Momentum
-                        
-                        # However, to use replay_engine, we need an entry price.
-                        # We will assume Option Price ~ (Spot Price * 0.005) + Intrinsic if ITM?
-                        # Simplification: We use the Spot Trigger Level for reporting, 
-                        # but if we want to simulate an Option Trade, we need Option LTP.
-                        
-                        # Try to fetch Option Data at trigger time
-                        opt_entry = 100.0 # Default fallback
+                        # Simulate Option Price (Approximate for Replay)
+                        opt_entry = 100.0 # Default
                         opt_sl = 80.0
                         
                         if opt_symbol:
                             opt_token = smart_trader.get_instrument_token(opt_symbol, "NFO")
                             if opt_token:
-                                # Fetch 1 min candle at trigger time
+                                # Fetch 1 min candle at trigger time to get Entry Price
                                 if isinstance(trigger_time, str):
                                     t_dt = datetime.datetime.strptime(trigger_time, "%Y-%m-%d %H:%M:%S%z").replace(tzinfo=None)
                                 else:
@@ -237,12 +234,9 @@ class MomentumStrategyManager:
                                 o_end = t_dt + datetime.timedelta(minutes=5)
                                 o_data = self.kite.historical_data(opt_token, o_start, o_end, "minute")
                                 if o_data:
-                                    opt_entry = float(o_data[0]['open']) # Approx entry
-                                    # SL calculation: 
-                                    # Spot Risk = |Trigger - SL_Spot|
-                                    # Option Risk ~= Spot Risk * 0.5 (Delta)
+                                    opt_entry = float(o_data[0]['open']) 
                                     spot_risk = abs(trigger_price - sl_price)
-                                    opt_risk = spot_risk * 0.5
+                                    opt_risk = spot_risk * 0.5 # Delta approx
                                     opt_sl = opt_entry - opt_risk
 
                         trade_details = {
@@ -253,7 +247,7 @@ class MomentumStrategyManager:
                             "sl": opt_sl,
                             "spot_trigger": trigger_price
                         }
-                        break # Stop after first valid trade of the day (Conservative)
+                        break # Stop after first valid trade
             
             if not trade_found:
                  return {"status": "info", "message": f"No Momentum Setup triggered on {date_str}."}
@@ -265,7 +259,7 @@ class MomentumStrategyManager:
                 t_controls = []
                 
                 risk_pts = trade_details['price'] - trade_details['sl']
-                if risk_pts <= 0: risk_pts = 20 # Fallback
+                if risk_pts <= 5: risk_pts = 20 # Minimum Risk Buffer
                 
                 for leg in self.legs_config:
                     if not leg.get('active', False):
@@ -323,7 +317,6 @@ class MomentumStrategyManager:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
     def _fetch_data(self, token, period=50):
-        """Fetches last N candles for Indicator Calculation"""
         try:
             to_date = datetime.datetime.now(IST)
             from_date = to_date - datetime.timedelta(days=5)
@@ -348,111 +341,141 @@ class MomentumStrategyManager:
                     time.sleep(5)
                     continue
                 
-                # 2. Fetch Data (Nifty Spot)
-                df = self._fetch_data(self.nifty_spot_token)
-                if len(df) < 20: 
-                    time.sleep(5)
-                    continue
+                # 2. State Machine
+                # If No Signal, Scan for Setup
+                if self.signal_stage == "NONE":
+                    self._scan_for_setup()
+                
+                # If Waiting for Trigger, Monitor LTP
+                elif self.signal_stage.startswith("WAIT_TRIGGER"):
+                    self._monitor_for_trigger()
 
-                # 3. Calculate Indicators
-                # VWAP requires High, Low, Close, Volume. 
-                # Note: Nifty Spot often has 0 volume. If so, we use Close for VWAP or fetch Futures.
-                # For this strategy, using FUTURES data is better for Volume/VWAP.
-                
-                # Try fetching Futures Token if missing
-                if not self.nifty_fut_token:
-                    self.nifty_fut_token = self._get_nifty_futures_token()
-                
-                # Use Futures for Calculation if available, else fallback to Spot
-                calc_token = self.nifty_fut_token if self.nifty_fut_token else self.nifty_spot_token
-                df_calc = self._fetch_data(calc_token)
-                
-                if df_calc.empty: continue
-
-                df_calc['EMA_9'] = ta.ema(df_calc['close'], length=self.ema_period)
-                df_calc['RSI'] = ta.rsi(df_calc['close'], length=self.rsi_period)
-                
-                # VWAP Calculation (Pandas TA handles it)
-                # If volume is 0 (Spot), VWAP might fail. 
-                if 'volume' in df_calc.columns and df_calc['volume'].sum() > 0:
-                    df_calc.set_index(pd.DatetimeIndex(df_calc['date']), inplace=True)
-                    df_calc['VWAP'] = ta.vwap(df_calc['high'], df_calc['low'], df_calc['close'], df_calc['volume'])
-                else:
-                    # Fallback if no volume: Use SMA as proxy or skip
-                    df_calc['VWAP'] = ta.sma(df_calc['close'], length=20) 
-
-                # 4. Check Signal on COMPLETED candle (Index -2)
-                # Index -1 is current forming candle (Repaints), Index -2 is confirmed.
-                curr = df_calc.iloc[-2]
-                
-                close = curr['close']
-                vwap = curr['VWAP']
-                ema = curr['EMA_9']
-                rsi = curr['RSI']
-                
-                signal = None
-                
-                # BUY Logic
-                if close > vwap and close > ema and rsi > self.rsi_buy:
-                    signal = "CE"
-                # SELL Logic
-                elif close < vwap and close < ema and rsi < self.rsi_sell:
-                    signal = "PE"
-                    
-                if signal:
-                    print(f"🔔 [MOMENTUM] Signal Found: {signal} at {curr.name} (RSI: {rsi:.2f})")
-                    self._execute_signal(signal, close)
-                    # Sleep to prevent duplicate entries on same candle
-                    time.sleep(300) 
-
-                time.sleep(5) # Wait before next check
+                time.sleep(2) # Fast poll for trigger
 
             except Exception as e:
                 print(f"❌ [MOMENTUM] Error: {e}")
                 time.sleep(5)
 
-    def _execute_signal(self, direction, spot_price):
-        if self.target_direction != "BOTH" and self.target_direction != direction:
-            return
+    def _scan_for_setup(self):
+        # Fetch Data
+        if not self.nifty_fut_token: self.nifty_fut_token = self._get_nifty_futures_token()
+        calc_token = self.nifty_fut_token if self.nifty_fut_token else self.nifty_spot_token
+        
+        df = self._fetch_data(calc_token)
+        if df.empty or len(df) < 20: return
 
-        # 1. Select Strike (ATM)
-        strike_gap = 50
-        atm_strike = round(spot_price / strike_gap) * strike_gap
+        # Indicators
+        df['EMA_9'] = ta.ema(df['close'], length=self.ema_period)
+        df['RSI'] = ta.rsi(df['close'], length=self.rsi_period)
         
-        # 2. Get Symbol
-        details = smart_trader.get_symbol_details(self.kite, "NIFTY")
-        if not details or not details.get('opt_expiries'): return
-        expiry = details['opt_expiries'][0]
+        if 'volume' in df.columns and df['volume'].sum() > 0:
+            df.set_index(pd.DatetimeIndex(df['date']), inplace=True)
+            df['VWAP'] = ta.vwap(df['high'], df['low'], df['close'], df['volume'])
+        else:
+            df['VWAP'] = ta.sma(df['close'], length=20) 
+
+        # Check Last Completed Candle
+        curr = df.iloc[-2]
+        close = curr['close']
+        vwap = curr['VWAP']
+        ema = curr['EMA_9']
+        rsi = curr['RSI']
         
-        symbol = smart_trader.get_exact_symbol("NIFTY", expiry, atm_strike, direction)
-        if not symbol: return
+        signal = None
         
-        print(f"⚡ [MOMENTUM] Executing {direction}: {symbol}")
+        # BUY Setup
+        if close > vwap and close > ema and rsi > self.rsi_buy:
+            if self.target_direction in ["BOTH", "CE"]:
+                signal = "CE"
+                self.trigger_spot_price = float(curr['high'])
+                self.sl_spot_price = float(curr['low'])
         
-        # 3. Calculate Quantity & Targets
+        # SELL Setup (Buy PE)
+        elif close < vwap and close < ema and rsi < self.rsi_sell:
+            if self.target_direction in ["BOTH", "PE"]:
+                signal = "PE"
+                self.trigger_spot_price = float(curr['low'])
+                self.sl_spot_price = float(curr['high'])
+                
+        if signal:
+            # Prepare Symbol
+            strike_gap = 50
+            atm_strike = round(close / strike_gap) * strike_gap
+            
+            # Find Expiry
+            det = smart_trader.get_symbol_details(self.kite, "NIFTY")
+            if det and 'opt_expiries' in det:
+                expiry = det['opt_expiries'][0]
+                self.pending_symbol = smart_trader.get_exact_symbol("NIFTY", expiry, atm_strike, signal)
+                
+                if self.pending_symbol:
+                    self.signal_stage = f"WAIT_TRIGGER_{signal}"
+                    print(f"🔔 [MOMENTUM] {signal} Setup! Trigger: {self.trigger_spot_price} | SL: {self.sl_spot_price}")
+                    time.sleep(1) # Prevent double read
+
+    def _monitor_for_trigger(self):
+        # Fetch Spot LTP
+        try:
+            # Use Futures if we calculated on Futures, else Spot
+            ltp = smart_trader.get_ltp(self.kite, "NIFTY 50" if not self.nifty_fut_token else self.nifty_fut_token) 
+            if ltp == 0: return # Retry
+            
+            # Logic for CE (Bullish)
+            if "CE" in self.signal_stage:
+                # Trigger Condition
+                if ltp > self.trigger_spot_price:
+                    print(f"⚡ [MOMENTUM] Trigger Hit: {ltp} > {self.trigger_spot_price}")
+                    self._execute_trade("CE", ltp)
+                    self.signal_stage = "NONE"
+                # Invalidation Condition (Hit SL before Trigger)
+                elif ltp < self.sl_spot_price:
+                    print(f"🚫 [MOMENTUM] Setup Invalidated: {ltp} < {self.sl_spot_price}")
+                    self.signal_stage = "NONE"
+
+            # Logic for PE (Bearish)
+            elif "PE" in self.signal_stage:
+                # Trigger Condition
+                if ltp < self.trigger_spot_price:
+                    print(f"⚡ [MOMENTUM] Trigger Hit: {ltp} < {self.trigger_spot_price}")
+                    self._execute_trade("PE", ltp)
+                    self.signal_stage = "NONE"
+                # Invalidation Condition
+                elif ltp > self.sl_spot_price:
+                    print(f"🚫 [MOMENTUM] Setup Invalidated: {ltp} > {self.sl_spot_price}")
+                    self.signal_stage = "NONE"
+                    
+        except Exception as e:
+            print(f"Monitor Error: {e}")
+
+    def _execute_trade(self, direction, spot_price):
+        if not self.pending_symbol: return
+        
+        print(f"🚀 Executing {direction} on {self.pending_symbol}")
+        
+        # Calculate Quantity
         active_legs = [leg for leg in self.legs_config if leg.get('active')]
-        if not active_legs: return # No legs configured
+        if not active_legs: return 
         
         total_lots = sum(l['lots'] for l in active_legs)
         qty = total_lots * self.lot_size
         
-        # Get LTP for Entry
-        ltp = smart_trader.get_ltp(self.kite, symbol)
-        if ltp == 0: return
+        # Get Option LTP for Targets
+        opt_ltp = smart_trader.get_ltp(self.kite, self.pending_symbol)
+        if opt_ltp == 0: return
         
-        # Calculate Targets based on legs
-        # For simplicity, we use the first active leg's ratio for SL/Target or fixed points
-        # Strategy defined SL as Swing Low. Here we use a fixed pts or % for automation simplicity
-        sl_pts = 20.0 # Default conservative SL for Options
+        # Estimate Risk on Option (Delta 0.5 approx)
+        spot_risk = abs(self.trigger_spot_price - self.sl_spot_price)
+        opt_risk = spot_risk * 0.5 
+        if opt_risk < 5: opt_risk = 10 # Min buffer
         
-        # Build Target Controls
+        # Build Targets
         target_controls = []
         custom_targets = []
         
         for leg in self.legs_config:
              if leg.get('active'):
                  ratio = leg.get('ratio', 1.5)
-                 t_price = ltp + (sl_pts * ratio)
+                 t_price = round(opt_ltp + (opt_risk * ratio), 2)
                  custom_targets.append(t_price)
                  target_controls.append({
                      'enabled': True, 
@@ -463,9 +486,9 @@ class MomentumStrategyManager:
                  custom_targets.append(0)
                  target_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
 
-        # 4. Place Trade
+        # Place Trade (BUY by default)
         res = trade_manager.create_trade_direct(
-            self.kite, self.mode, symbol, qty, sl_pts, custom_targets, 
+            self.kite, self.mode, self.pending_symbol, qty, opt_risk, custom_targets, 
             "MARKET", target_controls=target_controls, 
             trailing_sl=self.trailing_sl_pts, sl_to_entry=self.sl_to_entry_mode,
             target_channels=['main']
@@ -482,10 +505,10 @@ class MomentumStrategyManager:
         if t and t['status'] in ['SL_HIT', 'TARGET_HIT', 'MANUAL_EXIT']:
             self.trade_active = False
             self.current_trade_id = None
+            self.signal_stage = "NONE"
             print("ℹ️ [MOMENTUM] Trade Closed. Resuming Scan.")
 
     def _get_nifty_futures_token(self):
-        # Helper to find current month futures token
         try:
             instruments = self.kite.instruments("NFO")
             df = pd.DataFrame(instruments)

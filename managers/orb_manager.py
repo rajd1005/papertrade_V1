@@ -222,9 +222,25 @@ class ORBStrategyManager:
                     spot_ltp = float(c['close'])
                     atm_strike = round(spot_ltp / strike_diff) * strike_diff
                     
+                    # --- FIXED: EXPIRY FALLBACK LOGIC ---
                     sim_symbol = smart_trader.get_exact_symbol("NIFTY", expiry_str, atm_strike, signal_side)
+                    
+                    # If symbol not found (expired), try finding next active expiry
+                    if not sim_symbol:
+                        details = smart_trader.get_symbol_details(self.kite, "NIFTY")
+                        if details and 'opt_expiries' in details:
+                            # Filter for expiries ON or AFTER the target date
+                            t_date_str = target_date.strftime("%Y-%m-%d")
+                            valid_expiries = sorted([e for e in details['opt_expiries'] if e >= t_date_str])
+                            
+                            if valid_expiries:
+                                new_expiry = valid_expiries[0]
+                                sim_symbol = smart_trader.get_exact_symbol("NIFTY", new_expiry, atm_strike, signal_side)
+                                if sim_symbol:
+                                    print(f"⚠️ [ORB] Expiry {expiry_str} missing (Expired?). Using active: {new_expiry}")
+
                     if not sim_symbol: 
-                        no_setup_reason = f"Option Symbol not found for {atm_strike} {signal_side}"
+                        no_setup_reason = f"Option Symbol not found for {atm_strike} {signal_side} (Tried {expiry_str})"
                         continue
                     
                     opt_token = smart_trader.get_instrument_token(sim_symbol, "NFO")

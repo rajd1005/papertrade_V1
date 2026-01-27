@@ -355,6 +355,10 @@ function runOrbBacktest() {
     let date = $('#orb_backtest_date').val();
     if(!date) { alert("Please select a date."); return; }
     
+    // --- NEW: Scrape General Settings & Cutoff ---
+    let direction = $('#orb_direction').val(); 
+    let cutoff = $('#orb_cutoff').val();
+
     let btn = $(event.target);
     let originalText = btn.html();
     btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Running...');
@@ -372,6 +376,7 @@ function runOrbBacktest() {
     }
 
     let risk = {
+        max_loss: parseFloat($('#orb_max_loss').val()) || 0, // Include Max Loss
         trail_pts: parseFloat($('#orb_trail_pts').val()) || 0,
         sl_entry: parseInt($('#orb_sl_to_entry').val()) || 0
     };
@@ -383,6 +388,8 @@ function runOrbBacktest() {
         contentType: 'application/json',
         data: JSON.stringify({ 
             date: date,
+            direction: direction, // Send Direction
+            cutoff: cutoff,       // Send Cutoff
             execute: true,
             legs_config: legs_config, // Pass current settings
             risk: risk // Pass current risk
@@ -748,6 +755,9 @@ function runMomBacktest() {
     let date = $('#mom_backtest_date').val();
     if(!date) { alert("Please select a date."); return; }
     
+    // --- NEW: Scrape General Settings ---
+    let direction = $('#mom_direction').val(); 
+
     let btn = $(event.target);
     let originalText = btn.html();
     btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Running...');
@@ -764,6 +774,7 @@ function runMomBacktest() {
         });
     }
     let risk = {
+        max_loss: parseFloat($('#mom_max_loss').val()) || 0, // Added Max Loss
         trail_pts: parseFloat($('#mom_trail_pts').val()) || 0,
         sl_entry: parseInt($('#mom_sl_to_entry').val()) || 0
     };
@@ -774,6 +785,7 @@ function runMomBacktest() {
         contentType: 'application/json',
         data: JSON.stringify({ 
             date: date,
+            direction: direction, // Added Direction
             execute: true, // Simulation implies execution in paper mode
             legs_config: legs_config,
             risk: risk

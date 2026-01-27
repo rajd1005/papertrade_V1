@@ -210,9 +210,6 @@ class ORBStrategyManager:
                     # Ideally, check real FUT data if available.
                     vol_check_passed = True 
                     
-                    # NOTE: If you had historical FUT data, check here:
-                    # if not (v_curr > v_prev1 > v_prev2): vol_check_passed = False
-                    
                     if not vol_check_passed:
                         msg = f"Signal at {c_time} rejected: Futures Volume not increasing."
                         return {"status": "info", "message": msg}
@@ -291,8 +288,6 @@ class ORBStrategyManager:
                             trigger_hit = True
                             trigger_time = oc['date']
                             break
-                        # Note: If Low < SL before High > Trigger, trade is usually invalid or not taken.
-                        # Assuming strictly "Wait for Breakout".
                             
                     if trigger_hit:
                         trade_found = True
@@ -307,7 +302,6 @@ class ORBStrategyManager:
             if not trade_found:
                 return {"status": "info", "message": f"No Valid Setup on {date_str}. Reason: {no_setup_reason}"}
 
-            # Fallback Check
             if sim_lot_size <= 0:
                 return {"status": "error", "message": f"❌ Error: Lot Size is 0. Cannot simulate trade."}
 
@@ -317,7 +311,6 @@ class ORBStrategyManager:
                 custom_targets = []
                 t_controls = []
                 
-                # Re-calculate entry/risk based on TRIGGER levels
                 entry_est = trigger_price
                 risk_points = entry_est - stop_loss_price
                 
@@ -352,11 +345,28 @@ class ORBStrategyManager:
                 
                 if total_qty <= 0: total_qty = sim_lot_size 
                 
+                # --- FIX DATE FORMAT FOR REPLAY ENGINE ---
+                # Replay engine expects "%Y-%m-%dT%H:%M" (HTML datetime-local format)
+                # entry_candle_time is likely "2026-01-19 10:05:00+05:30" (datetime object)
+                
+                clean_entry_str = ""
+                if isinstance(entry_candle_time, str):
+                    # Try to parse string and reformat
+                    try:
+                        dt_obj = datetime.datetime.strptime(entry_candle_time.split('+')[0].strip(), "%Y-%m-%d %H:%M:%S")
+                        clean_entry_str = dt_obj.strftime("%Y-%m-%dT%H:%M")
+                    except:
+                        clean_entry_str = entry_candle_time.replace(" ", "T")[:16] # Basic fallback
+                elif hasattr(entry_candle_time, 'strftime'):
+                    clean_entry_str = entry_candle_time.strftime("%Y-%m-%dT%H:%M")
+                
+                print(f"🚀 Executing Replay Import for {clean_entry_str}...")
+
                 # C. Execute Import
                 res = replay_engine.import_past_trade(
                     self.kite,
                     symbol=opt_symbol,
-                    entry_dt_str=str(entry_candle_time), # Trigger Time
+                    entry_dt_str=clean_entry_str, # FIXED FORMAT
                     qty=total_qty,
                     entry_price=entry_est,
                     sl_price=stop_loss_price,
@@ -370,12 +380,12 @@ class ORBStrategyManager:
                 
                 return {
                     "status": "success",
-                    "message": f"✅ Trade Simulated!\n\nSymbol: {opt_symbol}\nTrigger: {entry_est}\nSL: {stop_loss_price}\nTime: {entry_candle_time}"
+                    "message": f"✅ Trade Simulated & Saved!\n\nSymbol: {opt_symbol}\nTrigger: {entry_est}\nSL: {stop_loss_price}\nTime: {clean_entry_str}\n\nCheck 'Closed Trades' or 'Positions' tab."
                 }
 
             return {
                 "status": "success",
-                "message": f"Setup Found: {trade_type} | Trigger > {trigger_price} | SL: {stop_loss_price}",
+                "message": f"Setup Found (Not Executed): {trade_type} | Trigger > {trigger_price} | SL: {stop_loss_price}",
                 "suggestion": {
                     "symbol": opt_symbol,
                     "time": str(entry_candle_time),
@@ -386,7 +396,7 @@ class ORBStrategyManager:
         except Exception as e:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
-    # ... (Helper methods for Futures Token & Candles remain same) ...
+    # ... (Rest of file unchanged) ...
     def _get_nifty_futures_token(self):
         try:
             instruments = self.kite.instruments("NFO")

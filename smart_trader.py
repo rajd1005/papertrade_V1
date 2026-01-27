@@ -201,7 +201,8 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     futs = rows[(rows['exchange'] == 'NFO') & (rows['instrument_type'] == 'FUT')]
     if not futs.empty:
         lot = int(futs.iloc[0]['lot_size'])
-        if ex == 'CDS': lot = adjust_cds_lot_size(clean, lot)
+        # FIX: Removed the line causing NameError (ex is not defined)
+        # if ex == 'CDS': lot = adjust_cds_lot_size(clean, lot) 
     else:
         # Fallback to Options if FUT not found
         opts = rows[(rows['exchange'] == 'NFO') & (rows['instrument_type'].isin(['CE', 'PE']))]

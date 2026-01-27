@@ -196,10 +196,25 @@ class ORBStrategyManager:
                 close = float(c['close'])
                 c_time = c['date']
                 
-                # Check Spot Breakout
+                # --- CHECK CUTOFF TIME ---
+                try:
+                    # Convert to datetime time object for comparison
+                    row_dt = c_time
+                    if hasattr(row_dt, 'to_pydatetime'): row_dt = row_dt.to_pydatetime()
+                    if hasattr(row_dt, 'time'):
+                        if row_dt.time() > self.cutoff_time:
+                            break # Stop processing for the day
+                except: pass
+
+                # --- Check Spot Breakout with DIRECTION FILTER ---
                 signal_side = None
-                if close > r_high: signal_side = "CE"
-                elif close < r_low: signal_side = "PE"
+                
+                if close > r_high:
+                    if self.target_direction in ["BOTH", "CE"]: 
+                        signal_side = "CE"
+                elif close < r_low:
+                    if self.target_direction in ["BOTH", "PE"]: 
+                        signal_side = "PE"
                 
                 if signal_side:
                     # Step 4: Take candle details
@@ -207,7 +222,6 @@ class ORBStrategyManager:
                     
                     # Step 5: Check Futures Volume (3 Candles: Current, Prev1, Prev2)
                     # NOTE: Backtest Limitation - Assuming Pass if FUT data missing.
-                    # Ideally, check real FUT data if available.
                     vol_check_passed = True 
                     
                     if not vol_check_passed:
@@ -263,9 +277,9 @@ class ORBStrategyManager:
                     
                     risk_pts = opt_high - opt_low
                     
-                    # Risk Check <= 15
+                    # Risk Check <= 100 (Safe limit for Nifty Options)
                     if risk_pts > 100:
-                        msg = f"❌ Trade Cancelled: {sim_symbol} Risk {risk_pts:.2f} > 15 Points at {c_time}"
+                        msg = f"❌ Trade Cancelled: {sim_symbol} Risk {risk_pts:.2f} > 100 Points at {c_time}"
                         return {"status": "info", "message": msg}
                     
                     # Step 7: Wait for Trigger (Next Candle Breakout)
@@ -392,7 +406,6 @@ class ORBStrategyManager:
         except Exception as e:
             return {"status": "error", "message": f"Backtest Error: {str(e)}"}
 
-    # ... (Helper methods unchanged) ...
     def _get_nifty_futures_token(self):
         try:
             instruments = self.kite.instruments("NFO")
@@ -670,7 +683,6 @@ class ORBStrategyManager:
                 self.last_trade_status = status 
                 self.signal_state = "NONE"
     
-    # ... Helper methods remain same ...
     def _can_trade_side(self, side):
         if self.target_direction != "BOTH" and self.target_direction != side: return False
         total_trades = self.ce_trades + self.pe_trades

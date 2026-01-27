@@ -13,6 +13,7 @@ from managers import zerodha_ticker
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
 from managers.telegram_manager import bot as telegram_bot
 from managers.orb_manager import ORBStrategyManager
+from managers.momentum_manager import MomentumStrategyManager # <--- ADDED
 import smart_trader
 import settings
 from database import db, AppSetting
@@ -34,9 +35,10 @@ bot_active = False
 login_state = "IDLE" 
 login_error_msg = None 
 orb_bot = None  # Global instance for ORB Strategy
+momentum_bot = None # <--- ADDED
 
 def run_auto_login_process():
-    global bot_active, login_state, login_error_msg, orb_bot
+    global bot_active, login_state, login_error_msg, orb_bot, momentum_bot
     
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
         login_state = "FAILED"
@@ -65,9 +67,13 @@ def run_auto_login_process():
                 login_state = "IDLE"
                 gc.collect()
 
-                # --- START ORB STRATEGY (Manual Init) ---
+                # --- START STRATEGIES (Manual Init) ---
                 if orb_bot is None:
                     orb_bot = ORBStrategyManager(kite)
+                
+                if momentum_bot is None: # <--- ADDED
+                    momentum_bot = MomentumStrategyManager(kite)
+
                 # NOTE: Auto-start removed as per user request. 
                 # Bot waits for manual start from Strategy Page.
                 # --------------------------------------
@@ -402,6 +408,117 @@ def api_orb_backtest():
     result = orb_bot.run_backtest(date, auto_execute=auto_exec)
     return jsonify(result)
 
+# --- MOMENTUM STRATEGY ROUTES (NEW) ---
+
+@app.route('/api/momentum/params')
+def api_momentum_params():
+    ls = 0
+    try:
+        fetched_ls = smart_trader.fetch_active_lot_size(kite, "NIFTY")
+        if fetched_ls > 0: ls = fetched_ls
+        else:
+             det = smart_trader.get_symbol_details(kite, "NIFTY")
+             if det and det.get('lot_size'): ls = int(det['lot_size'])
+    except: ls = 50
+
+    active = False
+    current_mode = "PAPER"
+    current_direction = "BOTH"
+    
+    # Default Config
+    legs_config = [
+        {'active': True, 'lots': 1, 'full': False, 'ratio': 1.0, 'trail': True},
+        {'active': True, 'lots': 1, 'full': False, 'ratio': 2.0, 'trail': False},
+        {'active': False, 'lots': 1, 'full': True, 'ratio': 3.0, 'trail': False}
+    ]
+    risk_settings = {
+        'max_loss': 0, 'trail_pts': 0, 'sl_entry': 0, 'session_pnl': 0.0
+    }
+
+    if momentum_bot:
+        active = momentum_bot.active
+        if hasattr(momentum_bot, 'legs_config') and momentum_bot.legs_config:
+            legs_config = momentum_bot.legs_config
+            
+        current_mode = momentum_bot.mode
+        current_direction = momentum_bot.target_direction
+        
+        risk_settings = {
+            'max_loss': getattr(momentum_bot, 'max_daily_loss', 0),
+            'trail_pts': getattr(momentum_bot, 'trailing_sl_pts', 0),
+            'sl_entry': getattr(momentum_bot, 'sl_to_entry_mode', 0),
+            'session_pnl': getattr(momentum_bot, 'session_pnl', 0.0)
+        }
+
+    return jsonify({
+        "active": active,
+        "lot_size": ls,
+        "current_mode": current_mode,
+        "current_direction": current_direction,
+        "legs_config": legs_config,
+        "risk": risk_settings
+    })
+
+@app.route('/api/momentum/toggle', methods=['POST'])
+def api_momentum_toggle():
+    global momentum_bot
+    action = request.json.get('action')
+    
+    mode = request.json.get('mode', 'PAPER')
+    direction = request.json.get('direction', 'BOTH')
+    legs_config = request.json.get('legs_config')
+    risk = request.json.get('risk', {})
+
+    if not momentum_bot:
+        momentum_bot = MomentumStrategyManager(kite)
+
+    if action == 'start':
+        momentum_bot.start(
+            mode=mode,
+            direction=direction,
+            legs_config=legs_config,
+            risk_settings=risk
+        )
+        return jsonify({"status": "success", "message": f"✅ Momentum Started ({mode})"})
+    elif action == 'stop':
+        momentum_bot.stop()
+        return jsonify({"status": "success", "message": "🛑 Momentum Stopped"})
+
+    return jsonify({"active": momentum_bot.active})
+
+@app.route('/api/momentum/backtest', methods=['POST'])
+def api_momentum_backtest():
+    global momentum_bot
+    data = request.json
+    date = data.get('date')
+    auto_exec = data.get('execute', False) 
+    
+    if not momentum_bot:
+        momentum_bot = MomentumStrategyManager(kite)
+    
+    if not date:
+        return jsonify({"status": "error", "message": "Date is required"})
+
+    # Apply Settings temporarily for Backtest
+    direction = data.get('direction')
+    if direction: momentum_bot.target_direction = str(direction).upper()
+    
+    legs = data.get('legs_config')
+    if legs: momentum_bot.legs_config = legs
+    
+    risk = data.get('risk')
+    if risk:
+        momentum_bot.trailing_sl_pts = float(risk.get('trail_pts', 0))
+        momentum_bot.sl_to_entry_mode = int(risk.get('sl_entry', 0))
+        momentum_bot.max_daily_loss = abs(float(risk.get('max_loss', 0)))
+
+    # Ensure run_backtest exists in your MomentumStrategyManager before calling!
+    if hasattr(momentum_bot, 'run_backtest'):
+        result = momentum_bot.run_backtest(date, auto_execute=auto_exec)
+        return jsonify(result)
+    else:
+        return jsonify({"status": "error", "message": "Backtest not implemented in Momentum Manager yet."})
+
 # -------------------------------------
 
 @app.route('/reset_connection')
@@ -418,7 +535,7 @@ def reset_connection():
 
 @app.route('/callback')
 def callback():
-    global bot_active, orb_bot
+    global bot_active, orb_bot, momentum_bot
     t = request.args.get("request_token")
     if t:
         try:
@@ -432,9 +549,13 @@ def callback():
             smart_trader.fetch_instruments(kite)
             gc.collect()
 
-            # --- START ORB STRATEGY (Manual Init) ---
+            # --- START STRATEGIES (Manual Init) ---
             if orb_bot is None:
                 orb_bot = ORBStrategyManager(kite)
+            
+            if momentum_bot is None: # <--- ADDED
+                momentum_bot = MomentumStrategyManager(kite)
+
             # Auto-start removed
             # --------------------------------------
             

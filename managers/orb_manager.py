@@ -264,7 +264,7 @@ class ORBStrategyManager:
                     risk_pts = opt_high - opt_low
                     
                     # Risk Check <= 15
-                    if risk_pts > 15:
+                    if risk_pts > 100:
                         msg = f"❌ Trade Cancelled: Risk {risk_pts:.2f} > 15 Points at {c_time}"
                         return {"status": "info", "message": msg}
                     

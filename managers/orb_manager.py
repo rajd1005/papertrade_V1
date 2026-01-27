@@ -57,6 +57,7 @@ class ORBStrategyManager:
         self.trigger_price = 0     # Option High
         self.sl_price = 0          # Option Low
         self.monitored_opt_sym = None # Symbol we are watching for breakout
+        self.last_signal_time = None # [NEW] Prevents same-candle re-entry
         
         self.trade_active = False
         self.current_trade_id = None
@@ -128,6 +129,7 @@ class ORBStrategyManager:
             self.trigger_price = 0
             self.sl_price = 0
             self.monitored_opt_sym = None
+            self.last_signal_time = None 
             
             self.trade_active = False
             self.session_pnl = 0.0
@@ -146,7 +148,7 @@ class ORBStrategyManager:
     def run_backtest(self, date_str, auto_execute=False):
         """
         Runs the 7-Step ORB strategy logic on a past date.
-        Returns specific failure reasons if no trade is found.
+        Respects: Direction Filter, Cutoff Time, and User Settings (Legs/Risk).
         """
         try:
             # 0. Setup
@@ -160,7 +162,6 @@ class ORBStrategyManager:
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
             
             # Fetch Expiry for that date (Approx)
-            # FIX: Nifty Expiry is THURSDAY (3)
             days_ahead = (3 - target_date.weekday() + 7) % 7 
             expiry_date = target_date + datetime.timedelta(days=days_ahead)
             expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -277,7 +278,7 @@ class ORBStrategyManager:
                     
                     risk_pts = opt_high - opt_low
                     
-                    # Risk Check <= 100 (Safe limit for Nifty Options)
+                    # Risk Check <= 100
                     if risk_pts > 100:
                         msg = f"❌ Trade Cancelled: {sim_symbol} Risk {risk_pts:.2f} > 100 Points at {c_time}"
                         return {"status": "info", "message": msg}
@@ -518,6 +519,10 @@ class ORBStrategyManager:
         # Latest completed candle is at index -2 (since -1 is forming)
         sig_candle_spot = spot_df.iloc[-2]
         
+        # [NEW] Check if we already traded this candle (Prevent Re-Entry on same signal)
+        if self.last_signal_time == sig_candle_spot['date']:
+            return 
+
         # Check Spot Close
         close_price = float(sig_candle_spot['close'])
         signal_side = None
@@ -586,6 +591,7 @@ class ORBStrategyManager:
             self.sl_price = opt_l
             self.monitored_opt_sym = symbol_name
             self.signal_state = f"MONITOR_OPT_{signal_side}"
+            self.last_signal_time = sig_candle_spot['date'] # [NEW] Mark candle as used
             
             print(f"🔔 [ORB] Valid {signal_side} Signal! Waiting for {symbol_name} > {self.trigger_price}. SL: {self.sl_price}")
             

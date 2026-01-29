@@ -117,10 +117,10 @@ function renderActivePositions(trades) {
 
     // 1. Calculate Totals first
     trades.forEach(t => {
-        // [FIX] Safety check for undefined LTP or Entry Price
-        let ltp = t.current_ltp || 0;
-        let entry = t.entry_price || 0;
-        let qty = t.quantity || 0;
+        // [FIX] Strict Type Parsing to prevent String concatenation errors
+        let ltp = parseFloat(t.current_ltp) || 0;
+        let entry = parseFloat(t.entry_price) || 0;
+        let qty = parseInt(t.quantity) || 0;
         
         // [FIX] If LTP is 0, assume no PnL change yet (avoid -100% loss flash)
         let pnl = 0;
@@ -171,11 +171,11 @@ function renderActivePositions(trades) {
     filtered.forEach(t => {
         // [FIX] Wrap iteration in Try-Catch to prevent one bad trade from stopping the loop
         try {
-            // Safe variable extraction
-            let ltp = t.current_ltp || 0;
-            let entry = t.entry_price || 0;
-            let qty = t.quantity || 0;
-            let sl = t.sl || 0;
+            // [CRITICAL] Safe variable extraction & Type Conversion
+            let ltp = parseFloat(t.current_ltp) || 0;
+            let entry = parseFloat(t.entry_price) || 0;
+            let qty = parseInt(t.quantity) || 0;
+            let sl = parseFloat(t.sl) || 0;
             
             // [FIX] PnL Display Logic
             let pnl = 0;
@@ -260,7 +260,7 @@ function renderActivePositions(trades) {
 
             for(let i=startIdx; i<3; i++) {
                 if(remQty <= 0) break;
-                let tp = targets[i] || 0;
+                let tp = parseFloat(targets[i]) || 0;
                 let tc = tControls[i];
                 if(!tc) continue;
                 let q = (i === 2 || tc.lots >= 1000) ? remQty : Math.min(tc.lots * lotSz, remQty);
@@ -285,7 +285,7 @@ function renderActivePositions(trades) {
                 $(`#${cardId} .t-pnl-val`).text(pnlText)
                     .removeClass('text-success text-danger text-warning text-muted').addClass(pnlColor);
                 
-                // [FIX] Use safe 'ltp' variable (prevents crash on undefined)
+                // [FIX] Update LTP HTML (Handles Spinner)
                 $(`#${cardId} .t-ltp`).html(ltpDisplay);
                 $(`#${cardId} .t-qty`).text(qty); 
                 $(`#${cardId} .t-fund`).text("₹" + (invested/1000).toFixed(1) + "k");
@@ -315,10 +315,7 @@ function renderActivePositions(trades) {
             } else {
                 // CREATE NEW CARD
                 let editBtn = `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openEditTradeModal('${t.id}')">✏️</button>`;
-                
-                // --- NEW: AJAX Button for Exit/Cancel ---
                 let exitBtn = `<button class="btn btn-sm btn-dark fw-bold py-0 px-2" style="font-size:0.75rem;" onclick="exitTrade('${t.id}')">${t.status==='PENDING'?'Cancel':'Exit'}</button>`;
-                // ----------------------------------------
 
                 let html = `
                 <div id="${cardId}" class="card mb-2 shadow-sm border-0">

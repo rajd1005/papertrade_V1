@@ -170,10 +170,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                             if conf['enabled']:
                                 lot_size = smart_trader.get_lot_size(symbol)
                                 exit_qty = conf['lots'] * lot_size
-                                
-                                # Log exit decision details
-                                logs.append(f"[{c_date_str}] T{i+1} Calc: Lots={conf['lots']} * Size={lot_size} = {exit_qty} Qty. Current={current_qty}")
-                                
                                 if exit_qty >= current_qty or exit_qty >= 1000:
                                     final_status = "TARGET_HIT"; exit_reason = f"TARGET_{i+1}_HIT"; final_exit_price = tgt
                                     pnl_here = (tgt - entry_price) * current_qty
@@ -194,7 +190,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                          final_exit_price = ltp
                          break 
             
-            # Post-Exit Scan Logic
+            # Post-Exit Scan Logic (UPDATED)
             if current_qty == 0:
                 skip_scan = (final_status == "SL_HIT" and len(targets_hit_indices) > 0)
                 if not skip_scan:

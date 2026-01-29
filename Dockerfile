@@ -1,5 +1,5 @@
-# Upgrade to Python 3.12 (Debian 12 Bookworm) to support pandas_ta requirements
-FROM python:3.12-slim-bookworm
+# Upgrade to Python 3.11 (Debian 12 Bookworm) for performance and security
+FROM python:3.11-slim-bookworm
 
 # 1. Install System Dependencies & Google Chrome
 # Uses the modern 'signed-by' keyring method to avoid apt-key deprecation errors

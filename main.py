@@ -9,11 +9,10 @@ from kiteconnect import KiteConnect
 import config
 from managers import zerodha_ticker
 
-# --- IMPORTS ---
+# --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
 from managers.telegram_manager import bot as telegram_bot
-from managers.orb_manager import ORBStrategyManager
-from managers.momentum_manager import MomentumStrategyManager 
+# --------------------------
 import smart_trader
 import settings
 from database import db, AppSetting
@@ -34,16 +33,9 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 login_state = "IDLE" 
 login_error_msg = None 
-orb_bot = None  # Global instance for ORB Strategy
-momentum_bot = None 
-
-# --- CACHE FOR TICKER ---
-# Maps "EXCHANGE:SYMBOL" -> Instrument Token (int)
-# Used to avoid calling kite.ltp() repeatedly for active trades.
-SYMBOL_TOKEN_MAP = {} 
 
 def run_auto_login_process():
-    global bot_active, login_state, login_error_msg, orb_bot, momentum_bot
+    global bot_active, login_state, login_error_msg
     
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
         login_state = "FAILED"
@@ -63,24 +55,15 @@ def run_auto_login_process():
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
                 
-                # --- Start WebSocket Ticker ---
+                # --- NEW: Start WebSocket Ticker ---
                 zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
-                
+                # -----------------------------------
+
                 smart_trader.fetch_instruments(kite)
                 
                 bot_active = True
                 login_state = "IDLE"
                 gc.collect()
-
-                # --- START STRATEGIES (Manual Init) ---
-                if orb_bot is None:
-                    orb_bot = ORBStrategyManager(kite)
-                
-                if momentum_bot is None:
-                    momentum_bot = MomentumStrategyManager(kite)
-
-                # NOTE: Auto-start removed as per user request. 
-                # Bot waits for manual start from Strategy Page.
                 
                 # [NOTIFICATION] Success
                 telegram_bot.notify_system_event("LOGIN_SUCCESS", "Auto-Login Successful. Session Renewed.")
@@ -120,6 +103,7 @@ def run_auto_login_process():
 def background_monitor():
     global bot_active, login_state
     
+    # [FIXED] Wrapped Startup Notification in App Context
     with app.app_context():
         try:
             telegram_bot.notify_system_event("STARTUP", "Server Deployed & Monitor Started.")
@@ -135,13 +119,14 @@ def background_monitor():
                 # 1. Active Bot Check
                 if bot_active:
                     try:
-                        # Skip Token Check if using Mock Broker
+                        # [FIX] Skip Token Check if using Mock Broker
                         if not hasattr(kite, "mock_instruments"):
                             if not kite.access_token: 
                                 raise Exception("No Access Token Found")
 
                         # Force a simple API call to validate the token 
                         try:
+                            # Mock Broker might not have profile(), so we skip this check for Mock
                             if not hasattr(kite, "mock_instruments"):
                                 kite.profile() 
                         except Exception as e:
@@ -154,15 +139,17 @@ def background_monitor():
                         err = str(e)
                         if "Token is invalid" in err or "Network" in err or "No Access Token" in err or "access_token" in err:
                             print(f"⚠️ Connection Lost: {err}")
+                            
                             if bot_active:
                                 telegram_bot.notify_system_event("OFFLINE", f"Connection Lost: {err}")
+                            
                             bot_active = False 
                         else:
                             print(f"⚠️ Risk Loop Warning: {err}")
 
                 # 2. Reconnection Logic (Only if Bot is NOT active)
                 if not bot_active:
-                    # DETECT MOCK BROKER & BYPASS LOGIN
+                    # [NEW] DETECT MOCK BROKER & BYPASS LOGIN
                     if hasattr(kite, "mock_instruments"):
                         print("⚠️ [MONITOR] Mock Broker Detected. Bypassing Auto-Login. System Online.")
                         bot_active = True
@@ -196,15 +183,6 @@ def home():
     
     return render_template('dashboard.html', is_active=False, state=login_state, error=login_error_msg, login_url=kite.login_url())
 
-@app.route('/strategies')
-def strategies():
-    global bot_active, login_state
-    # Reuses the login/active logic but renders the new Strategy Page
-    if bot_active:
-        return render_template('strategies.html', is_active=True)
-    
-    return render_template('strategies.html', is_active=False, state=login_state, error=login_error_msg, login_url=kite.login_url())
-
 @app.route('/secure', methods=['GET', 'POST'])
 def secure_login_page():
     if request.method == 'POST':
@@ -217,312 +195,6 @@ def secure_login_page():
 @app.route('/api/status')
 def api_status():
     return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
-
-# --- ORB STRATEGY ROUTES ---
-
-@app.route('/api/orb/params')
-def api_orb_params():
-    """Provides status and all advanced config from server"""
-    # Initialize lot_size to 0
-    ls = 0 
-    try:
-        # 1. Attempt to fetch specific active lot size (Prioritize FUT)
-        fetched_ls = smart_trader.fetch_active_lot_size(kite, "NIFTY")
-        if fetched_ls > 0:
-            ls = fetched_ls
-        else:
-            # 2. Fallback to generic details
-            det = smart_trader.get_symbol_details(kite, "NIFTY")
-            if det and det.get('lot_size'):
-                ls = int(det['lot_size'])
-    except: 
-        ls = 0 # Remain 0 if fetch fails (e.g. Offline)
-    
-    active = False
-    current_mode = "PAPER"
-    current_direction = "BOTH"
-    current_cutoff = "13:00"
-    
-    # 1. Default Leg Configuration
-    legs_config = [
-        {'active': True, 'lots': 1, 'full': False, 'ratio': 1.0, 'trail': True},
-        {'active': True, 'lots': 1, 'full': False, 'ratio': 2.0, 'trail': False},
-        {'active': False, 'lots': 1, 'full': True, 'ratio': 3.0, 'trail': False}
-    ]
-    
-    # 2. Default Risk Configuration
-    risk_settings = {
-        'max_loss': 0, 
-        'trail_pts': 0, 
-        'sl_entry': 0,
-        'p_active': 0, 
-        'p_min': 0, 
-        'p_trail': 0,
-        'session_pnl': 0.0
-    }
-    
-    re_sl = False
-    re_sl_filter = "BOTH"
-    re_opp = False
-    
-    if orb_bot:
-        active = orb_bot.active
-        
-        # Populate Legs from Bot
-        if hasattr(orb_bot, 'legs_config') and orb_bot.legs_config:
-            legs_config = orb_bot.legs_config
-            
-        current_mode = orb_bot.mode
-        current_direction = orb_bot.target_direction
-        current_cutoff = orb_bot.cutoff_time.strftime("%H:%M")
-        
-        re_sl = orb_bot.reentry_same_sl
-        re_sl_filter = orb_bot.reentry_same_filter
-        re_opp = orb_bot.reentry_opposite
-        
-        # Populate Risk from Bot
-        risk_settings = {
-            'max_loss': getattr(orb_bot, 'max_daily_loss', 0),
-            'trail_pts': getattr(orb_bot, 'trailing_sl_pts', 0),
-            'sl_entry': getattr(orb_bot, 'sl_to_entry_mode', 0),
-            'p_active': getattr(orb_bot, 'profit_active', 0),
-            'p_min': getattr(orb_bot, 'profit_lock_min', 0),
-            'p_trail': getattr(orb_bot, 'profit_trail_step', 0),
-            'session_pnl': getattr(orb_bot, 'session_pnl', 0.0)
-        }
-    
-    return jsonify({
-        "active": active,
-        "lot_size": ls,
-        "current_mode": current_mode,
-        "current_direction": current_direction,
-        "current_cutoff": current_cutoff,
-        "re_sl": re_sl,
-        "re_sl_filter": re_sl_filter,
-        "re_opp": re_opp,
-        "legs_config": legs_config, 
-        "risk": risk_settings       
-    })
-
-@app.route('/api/orb/toggle', methods=['POST'])
-def api_orb_toggle():
-    global orb_bot
-    action = request.json.get('action') 
-    
-    # Basic Params
-    mode = request.json.get('mode', 'PAPER')
-    direction = request.json.get('direction', 'BOTH')
-    cutoff = request.json.get('cutoff', '13:00')
-    
-    # Re-entry Params
-    re_sl = request.json.get('re_sl', False)
-    re_sl_filter = request.json.get('re_sl_filter', 'BOTH')
-    re_opp = request.json.get('re_opp', False)
-    
-    # Legs Configuration
-    legs_config = request.json.get('legs_config')
-    
-    # Risk Configuration
-    risk = request.json.get('risk', {})
-    
-    if not orb_bot:
-        orb_bot = ORBStrategyManager(kite)
-        
-    if action == 'start':
-        orb_bot.start(
-            mode=mode, 
-            direction=direction, 
-            cutoff_str=cutoff,
-            re_sl=re_sl,
-            re_sl_side=re_sl_filter,
-            re_opp=re_opp,
-            legs_config=legs_config,
-            # Pass Risk Parameters to Start
-            max_loss=risk.get('max_loss', 0),
-            trail_pts=risk.get('trail_pts', 0),
-            sl_entry=risk.get('sl_entry', 0),
-            p_active=risk.get('p_active', 0),
-            p_min=risk.get('p_min', 0),
-            p_trail=risk.get('p_trail', 0)
-        )
-        return jsonify({"status": "success", "message": f"✅ ORB Started ({mode})"})
-    elif action == 'stop':
-        orb_bot.stop()
-        return jsonify({"status": "success", "message": "🛑 ORB Stopped"})
-    
-    return jsonify({"active": orb_bot.active})
-
-@app.route('/api/orb/backtest', methods=['POST'])
-def api_orb_backtest():
-    """
-    Updates ALL Bot parameters (General, Risk, Targets) from UI before running backtest.
-    Ensures backtest simulation perfectly matches User Config.
-    """
-    global orb_bot
-    data = request.json
-    date = data.get('date')
-    auto_exec = data.get('execute', False) 
-    
-    if not orb_bot:
-        orb_bot = ORBStrategyManager(kite)
-    
-    if not date:
-        return jsonify({"status": "error", "message": "Date is required"})
-    
-    # --- 1. APPLY GENERAL SETTINGS ---
-    # Direction
-    direction = data.get('direction')
-    if direction:
-        orb_bot.target_direction = str(direction).upper()
-        
-    # Cutoff Time
-    cutoff = data.get('cutoff')
-    if cutoff:
-        try:
-            from datetime import time as dt_time
-            t_parts = cutoff.split(':')
-            orb_bot.cutoff_time = dt_time(int(t_parts[0]), int(t_parts[1]))
-        except: pass
-
-    # --- 2. APPLY TARGET CONFIGURATION (LEGS) ---
-    legs = data.get('legs_config')
-    if legs:
-        orb_bot.legs_config = legs
-        
-    # --- 3. APPLY RISK SETTINGS ---
-    risk = data.get('risk')
-    if risk:
-        # Standard Trade Risk
-        orb_bot.trailing_sl_pts = float(risk.get('trail_pts', 0))
-        orb_bot.sl_to_entry_mode = int(risk.get('sl_entry', 0))
-        orb_bot.max_daily_loss = abs(float(risk.get('max_loss', 0)))
-        
-        # Profit Locking 
-        orb_bot.profit_active = float(risk.get('p_active', 0))
-        orb_bot.profit_lock_min = float(risk.get('p_min', 0))
-        orb_bot.profit_trail_step = float(risk.get('p_trail', 0))
-
-    # --- 4. APPLY RE-ENTRY SETTINGS ---
-    orb_bot.reentry_same_sl = bool(data.get('re_sl', False))
-    orb_bot.reentry_same_filter = str(data.get('re_sl_filter', 'BOTH')).upper()
-    orb_bot.reentry_opposite = bool(data.get('re_opp', False))
-        
-    # --- RUN SIMULATION ---
-    result = orb_bot.run_backtest(date, auto_execute=auto_exec)
-    return jsonify(result)
-
-# --- MOMENTUM STRATEGY ROUTES (NEW) ---
-
-@app.route('/api/momentum/params')
-def api_momentum_params():
-    ls = 0
-    try:
-        fetched_ls = smart_trader.fetch_active_lot_size(kite, "NIFTY")
-        if fetched_ls > 0: ls = fetched_ls
-        else:
-             det = smart_trader.get_symbol_details(kite, "NIFTY")
-             if det and det.get('lot_size'): ls = int(det['lot_size'])
-    except: ls = 50
-
-    active = False
-    current_mode = "PAPER"
-    current_direction = "BOTH"
-    
-    # Default Config
-    legs_config = [
-        {'active': True, 'lots': 1, 'full': False, 'ratio': 1.0, 'trail': True},
-        {'active': True, 'lots': 1, 'full': False, 'ratio': 2.0, 'trail': False},
-        {'active': False, 'lots': 1, 'full': True, 'ratio': 3.0, 'trail': False}
-    ]
-    risk_settings = {
-        'max_loss': 0, 'trail_pts': 0, 'sl_entry': 0, 'session_pnl': 0.0
-    }
-
-    if momentum_bot:
-        active = momentum_bot.active
-        if hasattr(momentum_bot, 'legs_config') and momentum_bot.legs_config:
-            legs_config = momentum_bot.legs_config
-            
-        current_mode = momentum_bot.mode
-        current_direction = momentum_bot.target_direction
-        
-        risk_settings = {
-            'max_loss': getattr(momentum_bot, 'max_daily_loss', 0),
-            'trail_pts': getattr(momentum_bot, 'trailing_sl_pts', 0),
-            'sl_entry': getattr(momentum_bot, 'sl_to_entry_mode', 0),
-            'session_pnl': getattr(momentum_bot, 'session_pnl', 0.0)
-        }
-
-    return jsonify({
-        "active": active,
-        "lot_size": ls,
-        "current_mode": current_mode,
-        "current_direction": current_direction,
-        "legs_config": legs_config,
-        "risk": risk_settings
-    })
-
-@app.route('/api/momentum/toggle', methods=['POST'])
-def api_momentum_toggle():
-    global momentum_bot
-    action = request.json.get('action')
-    
-    mode = request.json.get('mode', 'PAPER')
-    direction = request.json.get('direction', 'BOTH')
-    legs_config = request.json.get('legs_config')
-    risk = request.json.get('risk', {})
-
-    if not momentum_bot:
-        momentum_bot = MomentumStrategyManager(kite)
-
-    if action == 'start':
-        momentum_bot.start(
-            mode=mode,
-            direction=direction,
-            legs_config=legs_config,
-            risk_settings=risk
-        )
-        return jsonify({"status": "success", "message": f"✅ Momentum Started ({mode})"})
-    elif action == 'stop':
-        momentum_bot.stop()
-        return jsonify({"status": "success", "message": "🛑 Momentum Stopped"})
-
-    return jsonify({"active": momentum_bot.active})
-
-@app.route('/api/momentum/backtest', methods=['POST'])
-def api_momentum_backtest():
-    global momentum_bot
-    data = request.json
-    date = data.get('date')
-    auto_exec = data.get('execute', False) 
-    
-    if not momentum_bot:
-        momentum_bot = MomentumStrategyManager(kite)
-    
-    if not date:
-        return jsonify({"status": "error", "message": "Date is required"})
-
-    # Apply Settings temporarily for Backtest
-    direction = data.get('direction')
-    if direction: momentum_bot.target_direction = str(direction).upper()
-    
-    legs = data.get('legs_config')
-    if legs: momentum_bot.legs_config = legs
-    
-    risk = data.get('risk')
-    if risk:
-        momentum_bot.trailing_sl_pts = float(risk.get('trail_pts', 0))
-        momentum_bot.sl_to_entry_mode = int(risk.get('sl_entry', 0))
-        momentum_bot.max_daily_loss = abs(float(risk.get('max_loss', 0)))
-
-    # Ensure run_backtest exists in your MomentumStrategyManager before calling!
-    if hasattr(momentum_bot, 'run_backtest'):
-        result = momentum_bot.run_backtest(date, auto_execute=auto_exec)
-        return jsonify(result)
-    else:
-        return jsonify({"status": "error", "message": "Backtest not implemented in Momentum Manager yet."})
-
-# -------------------------------------
 
 @app.route('/reset_connection')
 def reset_connection():
@@ -538,28 +210,24 @@ def reset_connection():
 
 @app.route('/callback')
 def callback():
-    global bot_active, orb_bot, momentum_bot
+    global bot_active
     t = request.args.get("request_token")
     if t:
         try:
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
             
-            # --- Start WebSocket Ticker ---
+            # --- NEW: Start WebSocket Ticker (Critical Fix) ---
             zerodha_ticker.initialize_ticker(config.API_KEY, data["access_token"])
+            # --------------------------------------------------
 
             bot_active = True
             smart_trader.fetch_instruments(kite)
             gc.collect()
-
-            # --- START STRATEGIES (Manual Init) ---
-            if orb_bot is None:
-                orb_bot = ORBStrategyManager(kite)
             
-            if momentum_bot is None: 
-                momentum_bot = MomentumStrategyManager(kite)
-            
+            # [NOTIFICATION] Manual Login Success
             telegram_bot.notify_system_event("LOGIN_SUCCESS", "Manual Login (Callback) Successful.")
+            
             flash("✅ System Online")
         except Exception as e:
             flash(f"Login Error: {e}")
@@ -567,26 +235,38 @@ def callback():
 
 @app.route('/api/settings/load')
 def api_settings_load():
+    # Load base settings
     s = settings.load_settings()
+    
+    # --- FIXED: 1st Trade Logic using IST Timezone ---
     try:
         from managers.common import IST
         from datetime import datetime
         
+        # Fetch current date in IST instead of server local time
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        
+        # Load Trades & History to count today's trades
         trades = persistence.load_trades()
         history = persistence.load_history()
         
         count = 0
+        # Check Active Trades
         if trades:
             for t in trades:
-                if t.get('entry_time', '').startswith(today_str): count += 1
+                if t.get('entry_time', '').startswith(today_str): 
+                    count += 1
+        
+        # Check History
         if history:
             for t in history:
-                if t.get('entry_time', '').startswith(today_str): count += 1
+                if t.get('entry_time', '').startswith(today_str): 
+                    count += 1
             
         s['is_first_trade'] = (count == 0)
     except Exception as e:
         print(f"Error checking first trade: {e}")
+        # Default to False on error to prevent unwanted mode switching
         s['is_first_trade'] = False
         
     return jsonify(s)
@@ -697,6 +377,7 @@ def api_manual_trade_status():
     result = risk_engine.send_manual_trade_status(mode)
     return jsonify(result)
 
+# --- NEW TELEGRAM TEST ROUTE ---
 @app.route('/api/test_telegram', methods=['POST'])
 def test_telegram():
     token = request.form.get('token')
@@ -804,8 +485,6 @@ def api_simulate_scenario():
 
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
-    global SYMBOL_TOKEN_MAP
-    
     response = {
         "status": {
             "active": bot_active, 
@@ -817,74 +496,22 @@ def api_sync():
         "closed_trades": [],
         "specific_ltp": 0
     }
-    
     if bot_active:
         try: response["indices"] = smart_trader.get_indices_ltp(kite)
         except: pass
 
     trades = persistence.load_trades()
-    
-    # --- LIVE TICKER INTEGRATION (Instant LTP) ---
-    if bot_active and zerodha_ticker.ticker:
-        try:
-            # 1. Identify Active Trades
-            active_list = [t for t in trades if t.get('status') in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
-            
-            # 2. Identify symbols missing from Token Cache
-            symbols_to_fetch = []
-            for t in active_list:
-                key = f"{t.get('exchange', 'NSE')}:{t.get('symbol')}"
-                if key not in SYMBOL_TOKEN_MAP:
-                    symbols_to_fetch.append(key)
-            
-            # 3. Fetch Tokens for new symbols (One-time REST Call)
-            if symbols_to_fetch:
-                symbols_to_fetch = list(set(symbols_to_fetch))
-                try:
-                    quote_data = kite.ltp(symbols_to_fetch)
-                    new_tokens = []
-                    
-                    for sym, data in quote_data.items():
-                        token = data['instrument_token']
-                        SYMBOL_TOKEN_MAP[sym] = token
-                        new_tokens.append(token)
-                    
-                    # Subscribe Ticker to new tokens
-                    if new_tokens:
-                        zerodha_ticker.ticker.subscribe(new_tokens)
-                        
-                except Exception as e:
-                    print(f"[Sync] Token Fetch Error: {e}")
-
-            # 4. Update Trades from Ticker Cache
-            for t in active_list:
-                key = f"{t.get('exchange', 'NSE')}:{t.get('symbol')}"
-                token = SYMBOL_TOKEN_MAP.get(key)
-                
-                if token:
-                    # Get realtime price from Ticker Memory
-                    live_price = zerodha_ticker.ticker.get_ltp(token)
-                    if live_price and live_price > 0:
-                        t['current_ltp'] = live_price
-
-        except Exception as e:
-            print(f"[Sync Error] Ticker Update Failed: {e}")
-    # ---------------------------------------------
-
-    # Formatting for UI
     for t in trades:
         t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
     response["positions"] = trades
 
-    # Handle Closed Trades
     if request.json.get('include_closed'):
         history = persistence.load_history()
         for t in history:
             t['symbol'] = smart_trader.get_display_name(t['symbol'])
         response["closed_trades"] = history
 
-    # Handle Specific LTP Request
     req_ltp = request.json.get('ltp_req')
     if bot_active and req_ltp and req_ltp.get('symbol'):
         try:

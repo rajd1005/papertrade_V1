@@ -43,7 +43,6 @@ class ZerodhaTicker:
                 token = tick['instrument_token']
                 price = tick['last_price']
                 self.ltp_cache[token] = price
-                # print(f"Tick: {token} -> {price}") # Debugging
 
     def on_error(self, ws, code, reason):
         print(f"🔴 [TICKER] Error: {code} - {reason}")
@@ -55,7 +54,7 @@ class ZerodhaTicker:
         This fixes the deadlock where data never starts if the first sub failed.
         """
         with self.lock:
-            # We still convert to list and deduplicate input
+            # Deduplicate input list
             tokens_to_send = list(set(tokens))
             
             if tokens_to_send:
@@ -65,7 +64,6 @@ class ZerodhaTicker:
                 
                 # Update our tracking set
                 self.subscribed_tokens.update(tokens_to_send)
-                # print(f"📡 [TICKER] Subscribing to: {tokens_to_send}")
 
     def get_ltp(self, token):
         """Returns cached LTP or None if not available"""

@@ -13,7 +13,7 @@ from managers import zerodha_ticker
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
 from managers.telegram_manager import bot as telegram_bot
 from managers.orb_manager import ORBStrategyManager
-from managers.momentum_manager import MomentumStrategyManager # <--- ADDED
+from managers.momentum_manager import MomentumStrategyManager 
 import smart_trader
 import settings
 from database import db, AppSetting
@@ -35,7 +35,12 @@ bot_active = False
 login_state = "IDLE" 
 login_error_msg = None 
 orb_bot = None  # Global instance for ORB Strategy
-momentum_bot = None # <--- ADDED
+momentum_bot = None 
+
+# --- CACHE FOR TICKER ---
+# Maps "EXCHANGE:SYMBOL" -> Instrument Token (int)
+# Used to avoid calling kite.ltp() repeatedly for active trades.
+SYMBOL_TOKEN_MAP = {} 
 
 def run_auto_login_process():
     global bot_active, login_state, login_error_msg, orb_bot, momentum_bot
@@ -71,12 +76,11 @@ def run_auto_login_process():
                 if orb_bot is None:
                     orb_bot = ORBStrategyManager(kite)
                 
-                if momentum_bot is None: # <--- ADDED
+                if momentum_bot is None:
                     momentum_bot = MomentumStrategyManager(kite)
 
                 # NOTE: Auto-start removed as per user request. 
                 # Bot waits for manual start from Strategy Page.
-                # --------------------------------------
                 
                 # [NOTIFICATION] Success
                 telegram_bot.notify_system_event("LOGIN_SUCCESS", "Auto-Login Successful. Session Renewed.")
@@ -219,7 +223,7 @@ def api_status():
 @app.route('/api/orb/params')
 def api_orb_params():
     """Provides status and all advanced config from server"""
-    # FIX: Initialize lot_size to 0, NOT 50.
+    # Initialize lot_size to 0
     ls = 0 
     try:
         # 1. Attempt to fetch specific active lot size (Prioritize FUT)
@@ -296,8 +300,8 @@ def api_orb_params():
         "re_sl": re_sl,
         "re_sl_filter": re_sl_filter,
         "re_opp": re_opp,
-        "legs_config": legs_config, # <-- Sent to Frontend
-        "risk": risk_settings       # <-- Sent to Frontend
+        "legs_config": legs_config, 
+        "risk": risk_settings       
     })
 
 @app.route('/api/orb/toggle', methods=['POST'])
@@ -393,13 +397,12 @@ def api_orb_backtest():
         orb_bot.sl_to_entry_mode = int(risk.get('sl_entry', 0))
         orb_bot.max_daily_loss = abs(float(risk.get('max_loss', 0)))
         
-        # Profit Locking (Less relevant for single-trade backtest but good for consistency)
+        # Profit Locking 
         orb_bot.profit_active = float(risk.get('p_active', 0))
         orb_bot.profit_lock_min = float(risk.get('p_min', 0))
         orb_bot.profit_trail_step = float(risk.get('p_trail', 0))
 
     # --- 4. APPLY RE-ENTRY SETTINGS ---
-    # (Updated for context, though backtest usually simulates single entry)
     orb_bot.reentry_same_sl = bool(data.get('re_sl', False))
     orb_bot.reentry_same_filter = str(data.get('re_sl_filter', 'BOTH')).upper()
     orb_bot.reentry_opposite = bool(data.get('re_opp', False))
@@ -553,11 +556,8 @@ def callback():
             if orb_bot is None:
                 orb_bot = ORBStrategyManager(kite)
             
-            if momentum_bot is None: # <--- ADDED
+            if momentum_bot is None: 
                 momentum_bot = MomentumStrategyManager(kite)
-
-            # Auto-start removed
-            # --------------------------------------
             
             telegram_bot.notify_system_event("LOGIN_SUCCESS", "Manual Login (Callback) Successful.")
             flash("✅ System Online")
@@ -804,6 +804,8 @@ def api_simulate_scenario():
 
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
+    global SYMBOL_TOKEN_MAP
+    
     response = {
         "status": {
             "active": bot_active, 
@@ -815,22 +817,74 @@ def api_sync():
         "closed_trades": [],
         "specific_ltp": 0
     }
+    
     if bot_active:
         try: response["indices"] = smart_trader.get_indices_ltp(kite)
         except: pass
 
     trades = persistence.load_trades()
+    
+    # --- LIVE TICKER INTEGRATION (Instant LTP) ---
+    if bot_active and zerodha_ticker.ticker:
+        try:
+            # 1. Identify Active Trades
+            active_list = [t for t in trades if t.get('status') in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
+            
+            # 2. Identify symbols missing from Token Cache
+            symbols_to_fetch = []
+            for t in active_list:
+                key = f"{t.get('exchange', 'NSE')}:{t.get('symbol')}"
+                if key not in SYMBOL_TOKEN_MAP:
+                    symbols_to_fetch.append(key)
+            
+            # 3. Fetch Tokens for new symbols (One-time REST Call)
+            if symbols_to_fetch:
+                symbols_to_fetch = list(set(symbols_to_fetch))
+                try:
+                    quote_data = kite.ltp(symbols_to_fetch)
+                    new_tokens = []
+                    
+                    for sym, data in quote_data.items():
+                        token = data['instrument_token']
+                        SYMBOL_TOKEN_MAP[sym] = token
+                        new_tokens.append(token)
+                    
+                    # Subscribe Ticker to new tokens
+                    if new_tokens:
+                        zerodha_ticker.ticker.subscribe(new_tokens)
+                        
+                except Exception as e:
+                    print(f"[Sync] Token Fetch Error: {e}")
+
+            # 4. Update Trades from Ticker Cache
+            for t in active_list:
+                key = f"{t.get('exchange', 'NSE')}:{t.get('symbol')}"
+                token = SYMBOL_TOKEN_MAP.get(key)
+                
+                if token:
+                    # Get realtime price from Ticker Memory
+                    live_price = zerodha_ticker.ticker.get_ltp(token)
+                    if live_price and live_price > 0:
+                        t['current_ltp'] = live_price
+
+        except Exception as e:
+            print(f"[Sync Error] Ticker Update Failed: {e}")
+    # ---------------------------------------------
+
+    # Formatting for UI
     for t in trades:
         t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
     response["positions"] = trades
 
+    # Handle Closed Trades
     if request.json.get('include_closed'):
         history = persistence.load_history()
         for t in history:
             t['symbol'] = smart_trader.get_display_name(t['symbol'])
         response["closed_trades"] = history
 
+    # Handle Specific LTP Request
     req_ltp = request.json.get('ltp_req')
     if bot_active and req_ltp and req_ltp.get('symbol'):
         try:

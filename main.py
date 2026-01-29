@@ -538,7 +538,8 @@ def api_sync():
     response["positions"] = trades
 
     if request.json.get('include_closed'):
-        history = persistence.load_history()
+        # [OPTIMIZATION] Load today's history instead of full history for real-time sync
+        history = persistence.load_todays_history()
         for t in history:
             t['symbol'] = smart_trader.get_display_name(t['symbol'])
         response["closed_trades"] = history

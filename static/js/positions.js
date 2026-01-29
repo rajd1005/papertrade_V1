@@ -49,12 +49,10 @@ function updateData() {
                 let btnHtml = `<a href="${status.login_url}" class="btn btn-sm btn-danger fw-bold shadow-sm py-0" style="font-size: 0.75rem;" target="_blank"><i class="fas fa-key"></i> Manual Login</a>`;
                 $('#status-badge').attr('class', 'badge bg-transparent p-0').html(btnHtml);
             } else if (status.active) {
-                // Only update if text is different to prevent flickering/redraws
                 if ($('#status-badge').text().trim() !== "Connected") {
                     $('#status-badge').attr('class', 'badge bg-success shadow-sm').html('<i class="fas fa-wifi"></i> Connected');
                 }
             } else {
-                 let spinner = '<span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true" style="width: 0.8rem; height: 0.8rem; border-width: 0.15em;"></span> <span class="text-warning small blink" style="font-size:0.75rem;">Wait...</span>';
                  $('#status-badge').attr('class', 'badge bg-warning text-dark shadow-sm blink').html('<i class="fas fa-sync fa-spin"></i> Auto-Login...');
             }
 
@@ -74,18 +72,19 @@ function updateData() {
                 curLTP = d.specific_ltp; 
 
                 if ($('#importModal').is(':visible')) {
-                    // Update Import Modal LTP
                     $('#imp_ltp').text("LTP: " + curLTP);
-                    // Auto-fill price if empty
                     if(!$('#imp_price').val()) $('#imp_price').val(curLTP);
                 } else {
-                    // Update Main Trade Tab LTP
                     $('#inst_ltp').text("LTP: " + curLTP);
-                    // Auto calculate SL points if user is typing
                     if (document.activeElement.id !== 'p_sl' && typeof calcSLPriceFromPts === 'function') {
                         calcSLPriceFromPts('#sl_pts', '#p_sl');
                     }
                 }
+            } else if (payload.ltp_req) {
+                // [NEW] Show Loading if requesting data but getting 0
+                let spinner = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="width:0.7em; height:0.7em;"></span>';
+                if ($('#importModal').is(':visible')) $('#imp_ltp').html("LTP: " + spinner);
+                else $('#inst_ltp').html("LTP: " + spinner);
             }
 
             // 4. Update Active Positions (Optimized)
@@ -93,7 +92,6 @@ function updateData() {
 
             // 5. Update Closed Trades (if requested)
             if (d.closed_trades && d.closed_trades.length > 0) {
-                // Verify history.js is loaded
                 if(typeof renderClosedTrades === 'function') renderClosedTrades(d.closed_trades);
             }
         },
@@ -112,17 +110,19 @@ function renderActivePositions(trades) {
 
     // 1. Calculate Totals first
     trades.forEach(t => {
-        // [FIX] Safety check for undefined LTP or Entry Price
         let ltp = t.current_ltp || 0;
         let entry = t.entry_price || 0;
         let qty = t.quantity || 0;
         
-        let pnl = (t.status === 'PENDING') ? 0 : (ltp - entry) * qty;
+        // [FIX] If LTP is 0, assume no PnL change yet (avoid -100% loss flash)
+        let pnl = 0;
+        if (t.status !== 'PENDING' && ltp > 0) {
+            pnl = (ltp - entry) * qty;
+        }
+
         let invested = entry * qty; 
         
-        // [FIX] Fallback for getTradeCategory if missing
         let cat = (typeof getTradeCategory === 'function') ? getTradeCategory(t) : (t.mode || 'PAPER');
-        
         if(cat === 'LIVE') { sumLive += pnl; capLive += invested; }
         else if(cat === 'PAPER' && !t.is_replay) { sumPaper += pnl; capPaper += invested; }
     });
@@ -139,7 +139,6 @@ function renderActivePositions(trades) {
         return filterType === 'ALL' || cat === filterType;
     });
     
-    // A. Remove cards that are no longer present
     let currentIds = new Set(filtered.map(t => `trade-card-${t.id}`));
     $('#pos-container').children().each(function() {
         if (!currentIds.has(this.id) && this.id !== 'no-trades-msg') {
@@ -147,7 +146,6 @@ function renderActivePositions(trades) {
         }
     });
 
-    // B. Handle Empty State
     if(filtered.length === 0) {
         if($('#pos-container').children().length === 0) {
              $('#pos-container').html('<div class="text-center p-4 text-muted" id="no-trades-msg">No Active Trades for selected filter</div>');
@@ -157,27 +155,38 @@ function renderActivePositions(trades) {
         $('#no-trades-msg').remove();
     }
 
-    // C. Update or Append Cards
     filtered.forEach(t => {
-        // [FIX] Wrap iteration in Try-Catch to prevent one bad trade from stopping the loop
         try {
-            // Safe variable extraction
             let ltp = t.current_ltp || 0;
             let entry = t.entry_price || 0;
             let qty = t.quantity || 0;
             let sl = t.sl || 0;
             
-            let pnl = (t.status === 'PENDING') ? 0 : (ltp - entry) * qty;
+            // [FIX] PnL Display Logic
+            let pnl = 0;
+            let pnlColor = 'text-warning';
+            let ltpDisplay = ltp.toFixed(2);
+
+            if (t.status === 'PENDING') {
+                pnl = 0; 
+                pnlColor = 'text-warning';
+            } else if (ltp === 0) {
+                // Data not arrived yet
+                pnl = 0;
+                pnlColor = 'text-muted';
+                ltpDisplay = '<span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>';
+            } else {
+                pnl = (ltp - entry) * qty;
+                pnlColor = pnl >= 0 ? 'text-success' : 'text-danger';
+            }
+            
             let invested = entry * qty;
-            let pnlColor = pnl >= 0 ? 'text-success' : 'text-danger';
-            if (t.status === 'PENDING') { pnl = 0; pnlColor = 'text-warning'; }
             
             let cat = (typeof getTradeCategory === 'function') ? getTradeCategory(t) : (t.mode || 'PAPER');
             let badge = (typeof getMarkBadge === 'function') ? getMarkBadge(cat) : `<span class="badge bg-secondary">${cat}</span>`;
             
             if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.65rem;">REPLAY</span>';
 
-            // Status Tag
             let statusTag = '';
             if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pending</span>';
             else {
@@ -223,7 +232,7 @@ function renderActivePositions(trades) {
                 waitDuration = '<span class="text-info ms-1" style="font-size:0.65rem;">(Sim)</span>';
             }
             
-            // --- PROJECTED P&L CALCULATION ---
+            // --- PROJECTED P&L ---
             let projProfit = 0;
             let projLoss = (sl - entry) * qty;
             let remQty = qty;
@@ -248,36 +257,30 @@ function renderActivePositions(trades) {
             let projPColor = projProfit >= 0 ? 'text-success' : 'text-danger';
             let projLColor = projLoss >= 0 ? 'text-success' : 'text-danger';
 
+            let pnlText = (t.status==='PENDING') ? 'PENDING' : (ltp === 0 ? 'Wait...' : pnl.toFixed(2));
+
             // --- DOM PATCHING ---
             let cardId = `trade-card-${t.id}`;
             
             if ($(`#${cardId}`).length) {
-                // UPDATE EXISTING CARD
-                // We only update fields that change frequently
-                $(`#${cardId} .t-pnl-val`).text(t.status==='PENDING'?'PENDING':pnl.toFixed(2))
-                    .removeClass('text-success text-danger text-warning').addClass(pnlColor);
+                $(`#${cardId} .t-pnl-val`).text(pnlText)
+                    .removeClass('text-success text-danger text-warning text-muted').addClass(pnlColor);
                 
-                // [FIX] Use safe 'ltp' variable (prevents crash on undefined)
-                $(`#${cardId} .t-ltp`).text(ltp.toFixed(2));
+                $(`#${cardId} .t-ltp`).html(ltpDisplay);
                 $(`#${cardId} .t-qty`).text(qty); 
                 $(`#${cardId} .t-fund`).text("₹" + (invested/1000).toFixed(1) + "k");
                 $(`#${cardId} .t-sl`).text("SL: " + sl.toFixed(1));
                 
-                // Update Status Badge if it changed (optimization: check html content)
                 let curBadge = $(`#${cardId} .t-status-container`).html();
                 let newBadgeHtml = `${badge} ${statusTag}`;
-                // [FIX] Trim strings to avoid false mismatch due to whitespace
                 if(curBadge && curBadge.trim() !== newBadgeHtml.trim()) {
                      $(`#${cardId} .t-status-container`).html(newBadgeHtml);
                 }
                 
-                // Update Projected
                 $(`#${cardId} .t-proj-p`).text("₹" + projProfit.toFixed(0)).removeClass('text-success text-danger').addClass(projPColor);
                 $(`#${cardId} .t-proj-l`).text("₹" + projLoss.toFixed(0)).removeClass('text-success text-danger').addClass(projLColor);
                 
-                // Update Times (in case of activation)
                 if(activeTimeStr !== '--:--') {
-                    // Check if time text actually needs update to save DOM ops
                     let curTime = $(`#${cardId} .t-active-time`).text();
                     if(!curTime || !curTime.includes(activeTimeStr)) {
                          $(`#${cardId} .t-active-time`).html(`<span class="text-primary">Active: <b>${activeTimeStr}</b></span> ${waitDuration}`);
@@ -285,12 +288,8 @@ function renderActivePositions(trades) {
                 }
 
             } else {
-                // CREATE NEW CARD
                 let editBtn = `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openEditTradeModal('${t.id}')">✏️</button>`;
-                
-                // --- NEW: AJAX Button for Exit/Cancel ---
                 let exitBtn = `<button class="btn btn-sm btn-dark fw-bold py-0 px-2" style="font-size:0.75rem;" onclick="exitTrade('${t.id}')">${t.status==='PENDING'?'Cancel':'Exit'}</button>`;
-                // ----------------------------------------
 
                 let html = `
                 <div id="${cardId}" class="card mb-2 shadow-sm border-0">
@@ -303,7 +302,7 @@ function renderActivePositions(trades) {
                                 </div>
                             </div>
                             <div class="text-end">
-                                <div class="fw-bold h6 m-0 t-pnl-val ${pnlColor}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</div>
+                                <div class="fw-bold h6 m-0 t-pnl-val ${pnlColor}">${pnlText}</div>
                             </div>
                         </div>
                         <hr class="my-1 text-muted opacity-25">
@@ -318,7 +317,7 @@ function renderActivePositions(trades) {
                             </div>
                             <div class="col-3 border-end">
                                 <div class="text-muted small">LTP</div>
-                                <div class="fw-bold text-dark t-ltp">${ltp.toFixed(2)}</div>
+                                <div class="fw-bold text-dark t-ltp">${ltpDisplay}</div>
                             </div>
                             <div class="col-3">
                                 <div class="text-muted small">Fund</div>
@@ -360,8 +359,7 @@ function renderActivePositions(trades) {
     });
 }
 
-// --- Trade Management Functions ---
-
+// ... [Existing Modal Functions: openEditTradeModal, saveTradeUpdate, managePos, exitTrade, promoteTrade remain unchanged] ...
 function openEditTradeModal(id) {
     let t = activeTradesList.find(x => x.id == id); if(!t) return;
     $('#edit_trade_id').val(t.id);
@@ -470,41 +468,29 @@ function managePos(action) {
     }
 }
 
-// --- NEW: AJAX EXIT FUNCTION ---
 function exitTrade(id) {
     if(!confirm("Are you sure you want to Cancel/Exit this trade?")) return;
-    
-    // Optimistic UI: Hide card immediately to feel "Instant"
     $(`#trade-card-${id}`).css('opacity', '0.5');
-
     $.ajax({
-        url: `/close_trade/${id}`,
-        type: 'POST', // Using POST for Action
+        url: `/close_trade/${id}`, type: 'POST',
         success: function(r) {
             if(r.status === 'success') {
                 if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'success');
-                // Data update will naturally remove the card
                 updateData(); 
             } else {
-                $(`#trade-card-${id}`).css('opacity', '1'); // Revert if failed
+                $(`#trade-card-${id}`).css('opacity', '1');
                 if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'error');
                 else alert(r.message);
             }
         },
-        error: function(err) {
-            $(`#trade-card-${id}`).css('opacity', '1');
-            alert("Network Error during Exit");
-        }
+        error: function(err) { $(`#trade-card-${id}`).css('opacity', '1'); alert("Network Error"); }
     });
 }
 
-// --- NEW: AJAX PROMOTE FUNCTION (If needed) ---
 function promoteTrade(id) {
     if(!confirm("Promote this trade to LIVE?")) return;
-    
     $.ajax({
-        url: `/promote/${id}`,
-        type: 'POST',
+        url: `/promote/${id}`, type: 'POST',
         success: function(r) {
             if(r.status === 'success') {
                 if(typeof showFloatingAlert === 'function') showFloatingAlert(r.message, 'success');
@@ -514,8 +500,6 @@ function promoteTrade(id) {
                 else alert(r.message);
             }
         },
-        error: function(err) {
-            alert("Network Error during Promotion");
-        }
+        error: function(err) { alert("Network Error"); }
     });
 }

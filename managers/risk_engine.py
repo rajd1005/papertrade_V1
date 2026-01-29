@@ -433,6 +433,7 @@ def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
     NOW STRICTLY WEBSOCKET ONLY (No API Fallback).
+    Fix: Smarter Subscription logic to prevent spamming Zerodha.
     """
     current_settings = settings.load_settings()
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
@@ -450,25 +451,10 @@ def update_risk_engine(kite):
         if not all_instruments: 
             return
 
-        # --- 1. SUBSCRIBE TO TICKER (REAL-TIME) ---
-        # We subscribe to ensure data starts flowing.
-        if zerodha_ticker.ticker:
-            tokens_to_sub = []
-            for inst in all_instruments:
-                parts = inst.split(":")
-                if len(parts) == 2:
-                    exch, sym = parts
-                    tok = smart_trader.get_instrument_token(sym, exch)
-                    if tok:
-                        tokens_to_sub.append(tok)
-            
-            if tokens_to_sub:
-                zerodha_ticker.ticker.subscribe(tokens_to_sub)
-
-        # --- 2. FETCH PRICES (TICKER ONLY) ---
+        # --- SMART SUBSCRIPTION & FETCHING ---
         live_prices = {}
-        
-        # Pull from Ticker Cache
+        tokens_to_sub = []
+
         if zerodha_ticker.ticker:
             for inst in all_instruments:
                 parts = inst.split(":")
@@ -476,23 +462,33 @@ def update_risk_engine(kite):
                     exch, sym = parts
                     tok = smart_trader.get_instrument_token(sym, exch)
                     if tok:
+                        # 1. Try to get LTP from cache
                         ltp = zerodha_ticker.ticker.get_ltp(tok)
-                        if ltp:
+                        
+                        if ltp and ltp > 0:
+                            # Data exists, use it
                             live_prices[inst] = {'last_price': ltp}
-        
-        # NOTE: Removed all "missing_instruments" API fallback logic here.
-        # If data is missing, we simply wait for the next tick.
+                        else:
+                            # Data missing, mark for subscription
+                            tokens_to_sub.append(tok)
+            
+            # 2. Subscribe only to tokens that are missing data
+            if tokens_to_sub:
+                # Deduplicate to be safe
+                unique_tokens = list(set(tokens_to_sub))
+                # print(f"[RiskEngine] Subscribing to missing tokens: {unique_tokens}") # Debug log
+                zerodha_ticker.ticker.subscribe(unique_tokens)
+                # Data will arrive in the next tick(s)
 
-        # --- 3. Process ACTIVE TRADES ---
+        # --- Process ACTIVE TRADES ---
         active_list = []
         updated = False
         
         for t in active_trades:
-            # SAFETY BLOCK: Prevent one trade error from crashing loop
             try:
                 inst_key = f"{t['exchange']}:{t['symbol']}"
                 
-                # Check if we have price data
+                # Check if we have valid price data
                 if inst_key not in live_prices:
                      # If missing, keep the trade but don't process logic this tick.
                      # Since we subscribed above, data should arrive shortly.
@@ -663,7 +659,7 @@ def update_risk_engine(kite):
         if updated: 
             save_trades(active_list)
 
-        # --- 4. Process CLOSED TRADES (Missed Opportunity Tracker) ---
+        # --- Process CLOSED TRADES (Missed Opportunity Tracker) ---
         history_updated = False
         try:
             for t in todays_closed:

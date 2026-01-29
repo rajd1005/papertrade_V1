@@ -61,6 +61,21 @@ def run_auto_login_process():
 
                 smart_trader.fetch_instruments(kite)
                 
+                # --- UPDATED: Subscribe to Indices Immediately ---
+                try:
+                    indices = ["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"]
+                    tokens = []
+                    for idx in indices:
+                         exch, sym = idx.split(':')
+                         tk = smart_trader.get_instrument_token(sym, exch)
+                         if tk: tokens.append(tk)
+                    if tokens: 
+                        print(f"📡 Subscribing to Indices: {tokens}")
+                        zerodha_ticker.ticker.subscribe(tokens)
+                except Exception as e: 
+                    print(f"Index Subscription Error: {e}")
+                # ------------------------------------------------
+                
                 bot_active = True
                 login_state = "IDLE"
                 gc.collect()
@@ -223,6 +238,22 @@ def callback():
 
             bot_active = True
             smart_trader.fetch_instruments(kite)
+            
+            # --- UPDATED: Subscribe to Indices Immediately ---
+            try:
+                indices = ["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"]
+                tokens = []
+                for idx in indices:
+                     exch, sym = idx.split(':')
+                     tk = smart_trader.get_instrument_token(sym, exch)
+                     if tk: tokens.append(tk)
+                if tokens: 
+                    print(f"📡 Subscribing to Indices: {tokens}")
+                    zerodha_ticker.ticker.subscribe(tokens)
+            except Exception as e: 
+                print(f"Index Subscription Error: {e}")
+            # ------------------------------------------------
+            
             gc.collect()
             
             # [NOTIFICATION] Manual Login Success

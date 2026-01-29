@@ -1,13 +1,17 @@
 import json
 import threading
+import time
 from datetime import datetime
 from database import db, ActiveTrade, TradeHistory, RiskState, TelegramMessage
 
 # Global Lock for thread safety
 TRADE_LOCK = threading.Lock()
 
-# [FIX] Global In-Memory Cache
+# --- CACHING GLOBALS ---
+# We use this cache to serve the Frontend instantly without hitting the DB
 _ACTIVE_TRADES_CACHE = None
+_LAST_SAVE_TIME = 0
+SAVE_INTERVAL = 2.0  # Only write to DB every 2 seconds to prevent Disk I/O Lag
 
 # --- Risk State Persistence ---
 def get_risk_state(mode):
@@ -35,11 +39,12 @@ def save_risk_state(mode, state):
 # --- Active Trades Persistence ---
 def load_trades():
     """
-    [FIX] Returns cached trades if available to reduce DB I/O.
+    Returns cached trades from RAM if available (Instant).
+    Falls back to DB only if cache is empty (e.g. on Startup).
     """
     global _ACTIVE_TRADES_CACHE
     
-    # Return Cache if warm
+    # Return Cache if warm (Super Fast)
     if _ACTIVE_TRADES_CACHE is not None:
         return _ACTIVE_TRADES_CACHE
 
@@ -55,14 +60,24 @@ def load_trades():
 
 def save_trades(trades):
     """
-    [FIX] Updates Cache AND Database (including new SQL columns).
+    Updates RAM instantly. Writes to DB only if 2 seconds have passed since last save.
+    This prevents the database from choking the WebSocket/Risk Engine loop.
     """
-    global _ACTIVE_TRADES_CACHE
+    global _ACTIVE_TRADES_CACHE, _LAST_SAVE_TIME
+    
     try:
-        # 1. Update Memory Cache Immediately
+        # 1. Update Memory Cache Immediately (REAL-TIME)
         _ACTIVE_TRADES_CACHE = trades
+        
+        # 2. Check if we should write to DB (THROTTLING)
+        now = time.time()
+        # If we have trades and it's been less than 2s, skip DB write
+        if trades and (now - _LAST_SAVE_TIME < SAVE_INTERVAL):
+            return  # Skip DB write, keep system fast
+            
+        _LAST_SAVE_TIME = now
 
-        # 2. Sync to DB
+        # 3. Sync to DB (Background Backup)
         existing_records = ActiveTrade.query.all()
         existing_map = {r.id: r for r in existing_records}
         new_ids = set()
@@ -78,36 +93,33 @@ def save_trades(trades):
             sta = t.get('status')
             
             if t_id in existing_map:
-                # Update existing record
                 rec = existing_map[t_id]
-                rec.data = json_data
-                rec.symbol = sym
-                rec.mode = mod
-                rec.status = sta
+                # Optimization: Only SQL update if string changed
+                if rec.data != json_data:
+                    rec.data = json_data
+                    rec.symbol = sym
+                    rec.mode = mod
+                    rec.status = sta
             else:
-                # Insert new record with columns
-                new_record = ActiveTrade(
-                    id=t_id, 
-                    data=json_data,
-                    symbol=sym,
-                    mode=mod,
-                    status=sta
-                )
+                new_record = ActiveTrade(id=t_id, data=json_data, symbol=sym, mode=mod, status=sta)
                 db.session.add(new_record)
         
-        # 3. Delete removed records
+        # Remove deleted trades from DB
         for old_id, record in existing_map.items():
             if old_id not in new_ids:
                 db.session.delete(record)
         
         db.session.commit()
+        
     except Exception as e:
         print(f"Save Trades Error: {e}")
         db.session.rollback()
 
 # --- Trade History Persistence ---
 def load_history():
-    # Legacy load all (used for History Tab)
+    """
+    Legacy load all (used for History Tab).
+    """
     try:
         db.session.commit()
         return [json.loads(r.data) for r in TradeHistory.query.order_by(TradeHistory.id.desc()).all()]
@@ -117,12 +129,12 @@ def load_history():
 
 def load_todays_history():
     """
-    [FIX] Optimized loader for Risk Engine. 
-    Only loads trades where exit_time matches today's date using SQL filter.
+    Optimized loader: Only loads TODAY's closed trades.
+    Used by Risk Engine to track Highs of closed trades without loading the entire DB.
     """
     try:
         today_str = datetime.now().strftime("%Y-%m-%d")
-        # SQL Filter: exit_time LIKE '2023-10-27%'
+        # SQL Filter: fast retrieval of today's data using LIKE query
         rows = TradeHistory.query.filter(TradeHistory.exit_time.like(f"{today_str}%")).all()
         return [json.loads(r.data) for r in rows]
     except Exception as e:
@@ -133,7 +145,10 @@ def delete_trade(trade_id):
     from managers.telegram_manager import bot as telegram_bot
     with TRADE_LOCK:
         try:
+            # Delete associated Telegram messages first
             telegram_bot.delete_trade_messages(trade_id)
+            
+            # Delete from History DB
             TradeHistory.query.filter_by(id=int(trade_id)).delete()
             db.session.commit()
             return True
@@ -144,7 +159,8 @@ def delete_trade(trade_id):
 
 def save_to_history_db(trade_data):
     """
-    [FIX] Populates SQL columns (pnl, exit_time) for efficient reporting.
+    Saves a closed trade to the history table.
+    Called when a trade exits or is manually closed.
     """
     try:
         t_id = trade_data['id']

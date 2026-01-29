@@ -9,13 +9,18 @@ IST = pytz.timezone('Asia/Kolkata')
 
 instrument_dump = None 
 symbol_map = {} # FAST LOOKUP CACHE
+_cached_kite = None # Internal reference for auto-recovery
 
 def fetch_instruments(kite):
     """
     Downloads the master instrument list, optimizes dates, and builds a fast lookup map.
     Prioritizes specific exchanges (NFO > MCX > NSE) to handle duplicate symbols.
     """
-    global instrument_dump, symbol_map
+    global instrument_dump, symbol_map, _cached_kite
+    
+    # Cache kite instance for future auto-recovery calls
+    if kite:
+        _cached_kite = kite
     
     # If already loaded and map exists, skip to save bandwidth
     if instrument_dump is not None and not instrument_dump.empty and symbol_map: 
@@ -351,7 +356,12 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     return get_ltp(kite, ts) 
 
 def get_instrument_token(tradingsymbol, exchange):
-    global symbol_map, instrument_dump
+    global symbol_map, instrument_dump, _cached_kite
+    
+    # 0. Lazy Load if missing (AUTO-RECOVERY with Cached Kite)
+    if (not symbol_map or instrument_dump is None or instrument_dump.empty) and _cached_kite:
+         print("🔄 Auto-recovering instrument list in get_instrument_token...")
+         fetch_instruments(_cached_kite)
     
     # 1. Fast Path: Check Hash Map first (Priority Exchange Match)
     if symbol_map and tradingsymbol in symbol_map:

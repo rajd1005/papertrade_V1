@@ -432,7 +432,7 @@ def check_global_exit_conditions(kite, mode, mode_settings):
 def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
-    Fixes: Robust LTP Fetching (Fallback to individual quotes if bulk fails).
+    NOW STRICTLY WEBSOCKET ONLY (No API Fallback).
     """
     current_settings = settings.load_settings()
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
@@ -451,6 +451,7 @@ def update_risk_engine(kite):
             return
 
         # --- 1. SUBSCRIBE TO TICKER (REAL-TIME) ---
+        # We subscribe to ensure data starts flowing.
         if zerodha_ticker.ticker:
             tokens_to_sub = []
             for inst in all_instruments:
@@ -460,13 +461,14 @@ def update_risk_engine(kite):
                     tok = smart_trader.get_instrument_token(sym, exch)
                     if tok:
                         tokens_to_sub.append(tok)
+            
             if tokens_to_sub:
                 zerodha_ticker.ticker.subscribe(tokens_to_sub)
 
-        # --- 2. FETCH PRICES (TICKER FIRST -> API FALLBACK) ---
+        # --- 2. FETCH PRICES (TICKER ONLY) ---
         live_prices = {}
         
-        # A. Try Ticker Cache
+        # Pull from Ticker Cache
         if zerodha_ticker.ticker:
             for inst in all_instruments:
                 parts = inst.split(":")
@@ -478,28 +480,8 @@ def update_risk_engine(kite):
                         if ltp:
                             live_prices[inst] = {'last_price': ltp}
         
-        # B. Identify Missing Data
-        missing_instruments = [inst for inst in all_instruments if inst not in live_prices]
-
-        # C. API Fallback (With Retry Logic)
-        if missing_instruments:
-            try: 
-                # Try Bulk Quote First
-                q = kite.quote(missing_instruments)
-                live_prices.update(q)
-            except Exception as e: 
-                print(f"⚠️ Bulk Quote Failed: {e}. Retrying individually...")
-                # FALLBACK: Fetch one by one to isolate bad symbol
-                for single_inst in missing_instruments:
-                    try:
-                        q = kite.quote(single_inst)
-                        live_prices.update(q)
-                    except:
-                        print(f"❌ Failed to fetch price for: {single_inst}")
-
-                # If we still have NO data for anyone, we can't proceed
-                if not live_prices: 
-                    return
+        # NOTE: Removed all "missing_instruments" API fallback logic here.
+        # If data is missing, we simply wait for the next tick.
 
         # --- 3. Process ACTIVE TRADES ---
         active_list = []
@@ -512,7 +494,8 @@ def update_risk_engine(kite):
                 
                 # Check if we have price data
                 if inst_key not in live_prices:
-                     # Keep trade, skip logic this tick
+                     # If missing, keep the trade but don't process logic this tick.
+                     # Since we subscribed above, data should arrive shortly.
                      active_list.append(t)
                      continue
                      

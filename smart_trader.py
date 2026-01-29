@@ -92,15 +92,15 @@ def get_exchange_name(symbol):
 
 def get_ltp(kite, symbol):
     """
-    Fetches LTP from WebSocket Cache (Fast) -> Fallback to API (Slow).
-    Auto-subscribes to Ticker if token is known but not subscribed.
+    Fetches LTP from WebSocket Cache ONLY.
+    NO API FALLBACK used here.
     """
     try:
         # 1. Resolve Exchange & Token
         exch = get_exchange_name(symbol)
         token = get_instrument_token(symbol, exch)
         
-        # 2. Try fetching from WebSocket Cache first (FASTEST)
+        # 2. Try fetching from WebSocket Cache
         if token and zerodha_ticker.ticker:
             cached_price = zerodha_ticker.ticker.get_ltp(token)
             if cached_price:
@@ -109,14 +109,7 @@ def get_ltp(kite, symbol):
             # If valid token but missing in cache, Subscribe for NEXT time
             zerodha_ticker.ticker.subscribe([token])
 
-        # 3. Fallback: API Method (SLOW, but guaranteed)
-        full_sym = f"{exch}:{symbol}"
-        if ":" in symbol: full_sym = symbol
-        
-        quote = kite.quote(full_sym)
-        if quote and full_sym in quote:
-            return quote[full_sym]['last_price']
-            
+        # 3. NO API FALLBACK - Return 0 if not in Ticker
         return 0
     except Exception as e:
         print(f"⚠️ Error fetching LTP for {symbol}: {e}")
@@ -124,7 +117,7 @@ def get_ltp(kite, symbol):
 
 def get_indices_ltp(kite):
     """
-    Fetches Indices LTP using Ticker first, falling back to API only if necessary.
+    Fetches Indices LTP using Ticker ONLY.
     """
     indices_map = {
         "NSE:NIFTY 50": "NIFTY",
@@ -133,8 +126,7 @@ def get_indices_ltp(kite):
     }
     
     response = {"NIFTY": 0, "BANKNIFTY": 0, "SENSEX": 0}
-    missing_for_api = []
-
+    
     # 1. Try Ticker Cache
     if zerodha_ticker.ticker:
         for full_name, short_name in indices_map.items():
@@ -150,21 +142,8 @@ def get_indices_ltp(kite):
             
             if val:
                 response[short_name] = val
-            else:
-                missing_for_api.append(full_name)
-    else:
-        missing_for_api = list(indices_map.keys())
 
-    # 2. API Fallback for missing
-    if missing_for_api:
-        try:
-            q = kite.quote(missing_for_api)
-            for full_name in missing_for_api:
-                short_name = indices_map[full_name]
-                if full_name in q:
-                    response[short_name] = q[full_name]['last_price']
-        except: pass
-        
+    # 2. NO API FALLBACK
     return response
 
 def get_zerodha_symbol(common_name):

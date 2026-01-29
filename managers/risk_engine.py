@@ -3,7 +3,8 @@ import smart_trader
 import settings
 from datetime import datetime
 from database import db, TradeHistory
-from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_history, get_risk_state, save_risk_state
+# [FIX] Added load_todays_history to imports
+from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_history, load_todays_history, get_risk_state, save_risk_state
 from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
@@ -17,11 +18,11 @@ def send_eod_report(mode):
     2. Aggregate Summary (Total P/L, Funds, Wins/Losses)
     """
     try:
-        today_str = datetime.now(IST).strftime("%Y-%m-%d")
-        history = load_history()
+        # [OPTIMIZATION] Use load_todays_history() instead of loading full history
+        history = load_todays_history()
         
-        # Filter for Today's trades in the specific Mode (LIVE/PAPER)
-        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
+        # Filter for specific Mode (LIVE/PAPER) - Date filter is already done by load_todays_history
+        todays_trades = [t for t in history if t['mode'] == mode]
         
         if not todays_trades:
             return
@@ -149,11 +150,11 @@ def send_manual_trade_status(mode):
     Sends the detailed 'Final Trade Status' report for all trades of the day (Manual Trigger).
     """
     try:
-        today_str = datetime.now(IST).strftime("%Y-%m-%d")
-        history = load_history()
+        # [OPTIMIZATION] Use load_todays_history()
+        history = load_todays_history()
         
-        # Filter for Today's trades in the specific Mode
-        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
+        # Filter for Mode
+        todays_trades = [t for t in history if t['mode'] == mode]
         
         if not todays_trades:
             return {"status": "error", "message": "No trades found for today."}
@@ -228,6 +229,7 @@ def send_manual_trade_status(mode):
 def send_manual_trade_report(trade_id):
     """
     Sends a detailed status report for a SINGLE specific trade.
+    Kept load_history() to allow reporting on older trades if needed.
     """
     try:
         # Look in History first
@@ -311,11 +313,11 @@ def send_manual_summary(mode):
     Sends the Aggregate Summary for the current day.
     """
     try:
-        # This function reuses the logic to include the new counts
-        today_str = datetime.now(IST).strftime("%Y-%m-%d")
-        history = load_history()
+        # [OPTIMIZATION] Use load_todays_history()
+        history = load_todays_history()
         
-        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
+        # Filter for Mode
+        todays_trades = [t for t in history if t['mode'] == mode]
         
         if not todays_trades:
             return {"status": "error", "message": "No trades found for today."}
@@ -444,10 +446,10 @@ def check_global_exit_conditions(kite, mode, mode_settings):
             current_total_pnl = 0.0
             
             # Calculate PnL consistency (Realized + Unrealized)
-            today_str = datetime.now(IST).strftime("%Y-%m-%d")
-            history = load_history()
+            # [OPTIMIZATION] Use load_todays_history()
+            history = load_todays_history()
             for t in history:
-                if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode: 
+                if t['mode'] == mode: 
                     current_total_pnl += t.get('pnl', 0)
             
             active = [t for t in trades if t['mode'] == mode]
@@ -497,7 +499,7 @@ def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
     Updates prices, checks SL/Target hits, and triggers exits.
-    Now supports Real-Time WebSocket Updates.
+    Now supports Real-Time WebSocket Updates with Optimized DB loading.
     """
     # Check Global Conditions first
     current_settings = settings.load_settings()
@@ -507,10 +509,8 @@ def update_risk_engine(kite):
     with TRADE_LOCK:
         active_trades = load_trades()
         
-        # Load Today's Closed Trades for Missed Opportunity Tracking
-        history = load_history()
-        today_str = datetime.now(IST).strftime("%Y-%m-%d")
-        todays_closed = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str)]
+        # [OPTIMIZATION] Load Today's Closed Trades Directly (Fast)
+        todays_closed = load_todays_history()
 
         # Combine Active Symbols AND Closed Symbols for Data Fetching
         active_symbols = [f"{t['exchange']}:{t['symbol']}" for t in active_trades]

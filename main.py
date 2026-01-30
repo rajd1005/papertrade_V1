@@ -23,7 +23,8 @@ app.secret_key = config.SECRET_KEY
 app.config.from_object(config)
 
 # Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# [FIX] Removed async_mode='threading' to allow auto-detection of 'eventlet'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Initialize Database
 db.init_app(app)
@@ -884,4 +885,4 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t.start()
 
 if __name__ == "__main__":
-    socketio.run(app, host='0.0.0.0', port=config.PORT, debug=False)
+    socketio.run(app, host='0.0.0.0', port=config.PORT, debug=False, allow_unsafe_werkzeug=True)

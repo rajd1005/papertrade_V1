@@ -594,7 +594,7 @@ def on_ticks(ws, ticks):
         
         if updated:
             save_trades(active_list)
-            # [NEW] Emit real-time update to Frontend
+            # [NEW] Emit real-time update to Frontend via SocketIO
             if socket_io_server:
                 try:
                     socket_io_server.emit('trade_update', active_list)
@@ -669,12 +669,23 @@ def subscribe_active_trades(ws):
             print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).")
 
 def start_ticker(api_key, access_token, kite_inst, app_inst, socket_inst=None):
+    """
+    Initializes and starts the KiteTicker (or MockTicker).
+    """
     global kws, kite_client, flask_app, socket_io_server
     kite_client = kite_inst
     flask_app = app_inst
     socket_io_server = socket_inst # Store the SocketIO instance
     
-    kws = KiteTicker(api_key, access_token)
+    # --- MOCK BROKER DETECTION ---
+    if hasattr(kite_inst, "mock_instruments"):
+        print("⚠️ Starting MOCK Ticker...")
+        from mock_broker import MockKiteTicker
+        kws = MockKiteTicker(api_key, access_token)
+    else:
+        kws = KiteTicker(api_key, access_token)
+    # -----------------------------
+
     kws.on_ticks = on_ticks
     kws.on_connect = on_connect
     kws.on_close = on_close

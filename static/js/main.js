@@ -1,7 +1,7 @@
 // Global Socket Object
 var socket = null;
 
-// [CHANGED] Reduced to 1000ms (1 Second) for Real-Time feel
+// Real-Time Polling Interval (1 Second)
 const REFRESH_INTERVAL = 1000; 
 
 $(document).ready(function() {
@@ -20,7 +20,6 @@ $(document).ready(function() {
         $('#status-badge').attr('class', 'badge bg-danger shadow-sm').html('Socket Lost');
     });
 
-    // Listen for Real-Time Trade Updates (Active Positions)
     socket.on('trade_update', function(data) {
         if(typeof renderActivePositions === 'function') {
             renderActivePositions(data);
@@ -36,7 +35,6 @@ $(document).ready(function() {
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
     
-    // Set Inputs
     $('#hist_date').val(localDate.toISOString().slice(0,10)); 
     $('#imp_time').val(localDate.toISOString().slice(0,16)); 
     
@@ -46,10 +44,12 @@ $(document).ready(function() {
     $('#hist_date, #hist_filter').change(loadClosedTrades);
     $('#active_filter').change(updateData);
     
-    // New Order Form Logic
+    // --- A. MAIN TRADE TAB BINDINGS (Fixed) ---
+    
     $('input[name="type"]').change(function() {
         let s = $('#sym').val();
         if(s) loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts');
+        updateData(); // Force Update
     });
     
     $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
@@ -59,43 +59,55 @@ $(document).ready(function() {
     bindSearch('#imp_sym', '#sym_list'); 
     bindSearch('#new_watch_sym', '#sym_list'); 
 
-    // Chain & Input Bindings (New Order)
-    $('#sym').change(() => loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'));
-    $('#exp').change(() => fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str'));
+    // 1. Symbol Change -> Load Details -> Update
+    $('#sym').change(function() {
+        loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts');
+        setTimeout(updateData, 500); 
+    });
+
+    // 2. Expiry Change -> Fill Chain -> Update
+    $('#exp').change(function() {
+        fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str');
+        setTimeout(updateData, 500);
+    });
+
+    // 3. Strike Change -> FETCH LTP (Missing in previous version)
+    $('#str').change(function() {
+        $('#ltp_display').text("...");
+        updateData(); 
+    });
+
     $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
 
-    // --- IMPORT MODAL BINDINGS (Instant Updates) ---
+
+    // --- B. IMPORT MODAL BINDINGS ---
     
-    // 1. Symbol Change -> Load Details -> Force Update
     $('#imp_sym').change(function() {
         loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts');
         setTimeout(updateData, 500); 
     }); 
 
-    // 2. Expiry Change -> Load Strikes -> Force Update
     $('#imp_exp').change(function() {
         fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str');
         setTimeout(updateData, 500);
     });
 
-    // 3. Strike Change -> FETCH LTP IMMEDIATELY
     $('#imp_str').change(function() {
-        $('#imp_ltp_display').text("Fetching...");
-        updateData(); // Force immediate call
+        $('#imp_ltp_display').text("...");
+        updateData(); 
     });
     
-    // 4. Type Change -> Reload -> Force Update
     $('input[name="imp_type"]').change(function() {
         loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts');
         updateData();
     });
     
-    // Import Risk Calc Bindings
+    // Import Risk Calc
     $('#imp_price').on('input', function() { calcImpFromPts(); }); 
     $('#imp_sl_pts').on('input', calcImpFromPts);
     $('#imp_sl_price').on('input', calcImpFromPrice);
     
-    // "Full" Checkbox Listeners
+    // Full Checkboxes
     ['t1', 't2', 't3'].forEach(k => {
         $(`#imp_${k}_full`).change(function() {
             if($(this).is(':checked')) {
@@ -107,7 +119,7 @@ $(document).ready(function() {
         });
     });
 
-    // Auto-Remove Floating Notifications
+    // Notifications
     setTimeout(function() {
         $('.floating-alert').fadeOut('slow', function() { $(this).remove(); });
     }, 4000); 
@@ -116,49 +128,57 @@ $(document).ready(function() {
     setInterval(updateClock, 1000); 
     updateClock();
     
-    // Background Sync Loop (Indices, Import LTP)
-    // Now runs every 1 second for Real-Time feel
+    // Background Sync Loop
     setInterval(updateData, REFRESH_INTERVAL); 
-    updateData(); // Initial Call
+    updateData(); 
 });
 
-// --- CORE DATA SYNC FUNCTION (Restored) ---
+// --- CORE DATA SYNC FUNCTION (Updated to handle BOTH forms) ---
 function updateData() {
-    // Prepare Payload
     let payload = {
-        // Only fetch closed trades if history tab is active (saves bandwidth)
         include_closed: $('#pills-history-tab').hasClass('active'),
         ltp_req: null
     };
 
-    // If Import Modal is Open, piggyback the LTP request
+    // LOGIC: Check Import Modal FIRST. If closed, check Main Trade Tab.
+    
     if ($('#importModal').is(':visible')) {
+        // --- CASE 1: IMPORT MODAL IS OPEN ---
         let s = $('#imp_sym').val();
         let e = $('#imp_exp').val();
         let st = $('#imp_str').val();
         let t = $('input[name="imp_type"]:checked').val();
         
-        // Only request if we have enough info
+        if (s && e && st && t) {
+            payload.ltp_req = { symbol: s, expiry: e, strike: st, type: t };
+        }
+    } else {
+        // --- CASE 2: MAIN TRADE TAB IS ACTIVE ---
+        let s = $('#sym').val();
+        let e = $('#exp').val();
+        let st = $('#str').val();
+        let t = $('input[name="type"]:checked').val();
+
         if (s && e && st && t) {
             payload.ltp_req = { symbol: s, expiry: e, strike: st, type: t };
         }
     }
 
-    // High-Speed Sync Call
+    // Call Backend
     $.ajax({
         url: '/api/sync',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(payload),
         success: function(response) {
-            // 1. Update Header Indices (Nifty/BankNifty)
+            // 1. Indices
             if (response.indices) {
                 $('#nifty-ltp').text(response.indices.NIFTY || 0);
                 $('#banknifty-ltp').text(response.indices.BANKNIFTY || 0);
                 $('#sensex-ltp').text(response.indices.SENSEX || 0);
             }
 
-            // 2. Update System Status
+            // 2. Status
             if (response.status) {
                 if (response.status.active) {
                     $('#login-status').html('<span class="badge bg-success">System Active 🟢</span>');
@@ -168,25 +188,28 @@ function updateData() {
                     let badge = 'bg-secondary';
                     if (st === 'FAILED') badge = 'bg-danger';
                     if (st === 'WORKING') badge = 'bg-warning text-dark';
-                    
                     $('#login-status').html(`<span class="badge ${badge}">${st} 🔴</span>`);
                     $('#login-btn-container').show();
                     $('#login-link').attr('href', response.status.login_url);
                 }
             }
 
-            // 3. Update Import Modal LTP (If requested)
+            // 3. LTP Update (Smart Handling)
             if (response.specific_ltp > 0) {
-                $('#imp_ltp_display').text(response.specific_ltp);
-                
-                // Auto-fill price input if empty or previously auto-filled
-                if ($('#imp_price').val() == "" || $('#imp_price').data('auto') == "true") {
-                    $('#imp_price').val(response.specific_ltp).data('auto', "true");
-                    if(typeof calcImpFromPts === 'function') calcImpFromPts();
+                if ($('#importModal').is(':visible')) {
+                    // Update Import Modal
+                    $('#imp_ltp_display').text(response.specific_ltp);
+                    if ($('#imp_price').val() == "" || $('#imp_price').data('auto') == "true") {
+                        $('#imp_price').val(response.specific_ltp).data('auto', "true");
+                        if(typeof calcImpFromPts === 'function') calcImpFromPts();
+                    }
+                } else {
+                    // Update Main Trade Tab
+                    $('#ltp_display').text(response.specific_ltp);
                 }
             }
             
-            // 4. Update Closed Trades (Only if on History Tab)
+            // 4. Closed Trades
             if (response.closed_trades && typeof renderHistoryTable === 'function') {
                 renderHistoryTable(response.closed_trades);
             }
@@ -210,7 +233,7 @@ function switchTab(id) {
     if(id==='closed') loadClosedTrades(); 
     updateDisplayValues(); 
     if(id === 'trade') $('.sticky-footer').show(); else $('.sticky-footer').hide();
-    updateData(); // Force fresh data on tab switch
+    updateData(); // Force fresh data
 }
 
 function setMode(el, mode) { 
@@ -234,8 +257,7 @@ function panicExit() {
     }
 }
 
-// --- IMPORT TRADE LOGIC HELPER FUNCTIONS ---
-
+// Helpers
 function adjImpQty(dir) {
     let q = $('#imp_qty');
     let v = parseInt(q.val()) || 0;
@@ -266,20 +288,14 @@ function calcImpFromPrice() {
 
 function calculateImportTargets(entry, pts) {
     if(!entry || !pts) return;
-    
-    // Default Ratios
     let ratios = settings.modes.PAPER.ratios || [0.5, 1.0, 1.5];
     let t1_pts = pts * ratios[0];
     let t2_pts = pts * ratios[1];
     let t3_pts = pts * ratios[2];
 
-    // --- SYMBOL SPECIFIC OVERRIDE LOGIC ---
     let sVal = $('#imp_sym').val();
     if(sVal) {
-        let normS = (typeof normalizeSymbol === 'function') 
-            ? normalizeSymbol(sVal) 
-            : sVal.split(':')[0].trim().toUpperCase();
-        
+        let normS = (typeof normalizeSymbol === 'function') ? normalizeSymbol(sVal) : sVal.split(':')[0].trim().toUpperCase();
         let paperSettings = settings.modes.PAPER;
         if(paperSettings && paperSettings.symbol_sl && paperSettings.symbol_sl[normS]) {
             let sData = paperSettings.symbol_sl[normS];
@@ -326,35 +342,19 @@ function submitImport() {
         qty: parseInt($('#imp_qty').val()),
         price: parseFloat($('#imp_price').val()),
         sl: parseFloat($('#imp_sl_price').val()),
-        
         target_channel: $('input[name="imp_channel"]:checked').val() || 'main',
-
         trailing_sl: parseFloat($('#imp_trail_sl').val()) || 0,
         sl_to_entry: parseInt($('#imp_trail_limit').val()) || 0,
         exit_multiplier: parseInt($('#imp_exit_mult').val()) || 1,
-        
         targets: [
             parseFloat($('#imp_t1').val())||0,
             parseFloat($('#imp_t2').val())||0,
             parseFloat($('#imp_t3').val())||0
         ],
-        
         target_controls: [
-            { 
-                enabled: $('#imp_t1_active').is(':checked'), 
-                lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0),
-                trail_to_entry: $('#imp_t1_cost').is(':checked')
-            },
-            { 
-                enabled: $('#imp_t2_active').is(':checked'), 
-                lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0),
-                trail_to_entry: $('#imp_t2_cost').is(':checked')
-            },
-            { 
-                enabled: $('#imp_t3_active').is(':checked'), 
-                lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0),
-                trail_to_entry: $('#imp_t3_cost').is(':checked')
-            }
+            { enabled: $('#imp_t1_active').is(':checked'), lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0), trail_to_entry: $('#imp_t1_cost').is(':checked') },
+            { enabled: $('#imp_t2_active').is(':checked'), lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0), trail_to_entry: $('#imp_t2_cost').is(':checked') },
+            { enabled: $('#imp_t3_active').is(':checked'), lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0), trail_to_entry: $('#imp_t3_cost').is(':checked') }
         ]
     };
     
@@ -382,13 +382,11 @@ function renderWatchlist() {
     wl.forEach(w => { opts += `<option value="${w}">${w}</option>`; });
     $('#trade_watch').html(opts);
     $('#imp_watch').html(opts);
-    
-    let remOpts = '<option value="">Select to Remove...</option>';
-    wl.forEach(w => { remOpts += `<option value="${w}">${w}</option>`; });
-    if($('#remove_watch_sym').length) $('#remove_watch_sym').html(remOpts);
+    if($('#remove_watch_sym').length) {
+        let remOpts = '<option value="">Select to Remove...</option>';
+        wl.forEach(w => { remOpts += `<option value="${w}">${w}</option>`; });
+        $('#remove_watch_sym').html(remOpts);
+    }
 }
 
-// Legacy fallback
-function fetchLTP() {
-    console.log("Using UpdateData for LTP.");
-}
+function fetchLTP() { console.log("Legacy fetchLTP"); }

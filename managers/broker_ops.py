@@ -106,7 +106,6 @@ def panic_exit_all(kite):
     2. Places Market Sell orders for all open quantities.
     3. Moves all trades to history with status 'PANIC_EXIT'.
     """
-    # [REMOVED] with TRADE_LOCK:  <-- LOCK REMOVED
     try:
         trades = load_trades()
         if not trades: 

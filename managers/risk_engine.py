@@ -15,6 +15,7 @@ from managers.telegram_manager import bot as telegram_bot
 kws = None
 kite_client = None  # Reference to KiteConnect instance for placing orders
 flask_app = None    # Reference to Flask App for DB Context
+socket_io_server = None # Reference to SocketIO Server for emitting events
 
 # --- REPORTING FUNCTIONS ---
 
@@ -421,7 +422,7 @@ def on_ticks(ws, ticks):
     Triggered whenever a price update is received from Zerodha.
     Handles Active Trades and Closed Trades (Virtual SL).
     """
-    global kite_client, flask_app
+    global kite_client, flask_app, socket_io_server
     
     if not flask_app: return
 
@@ -593,6 +594,12 @@ def on_ticks(ws, ticks):
         
         if updated:
             save_trades(active_list)
+            # [NEW] Emit real-time update to Frontend
+            if socket_io_server:
+                try:
+                    socket_io_server.emit('trade_update', active_list)
+                except Exception as e:
+                    print(f"Socket Emit Error: {e}")
 
         # --- 2. PROCESS CLOSED TRADES (Virtual SL Tracking) ---
         history_updated = False
@@ -661,10 +668,11 @@ def subscribe_active_trades(ws):
             ws.set_mode(ws.MODE_FULL, all_tokens)
             print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).")
 
-def start_ticker(api_key, access_token, kite_inst, app_inst):
-    global kws, kite_client, flask_app
+def start_ticker(api_key, access_token, kite_inst, app_inst, socket_inst=None):
+    global kws, kite_client, flask_app, socket_io_server
     kite_client = kite_inst
     flask_app = app_inst
+    socket_io_server = socket_inst # Store the SocketIO instance
     
     kws = KiteTicker(api_key, access_token)
     kws.on_ticks = on_ticks

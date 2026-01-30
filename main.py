@@ -6,6 +6,7 @@ import gc
 import requests
 from flask import Flask, render_template, request, redirect, flash, jsonify, url_for
 from kiteconnect import KiteConnect
+from flask_socketio import SocketIO
 import config
 
 # --- REFACTORED IMPORTS ---
@@ -20,6 +21,9 @@ import auto_login
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 app.config.from_object(config)
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Initialize Database
 db.init_app(app)
@@ -135,7 +139,8 @@ def background_monitor():
                         # 1. Start WebSocket if not running
                         if not ticker_started:
                             print("🚀 Starting Zerodha WebSocket...")
-                            risk_engine.start_ticker(config.API_KEY, kite.access_token, kite, app)
+                            # Pass 'socketio' to the start_ticker function
+                            risk_engine.start_ticker(config.API_KEY, kite.access_token, kite, app, socketio)
                             ticker_started = True
                         
                         # 2. Sync Subscriptions (Handles new manual trades)
@@ -879,4 +884,4 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t.start()
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=config.PORT, threaded=True)
+    socketio.run(app, host='0.0.0.0', port=config.PORT, debug=False)

@@ -2,9 +2,13 @@ from datetime import datetime
 import time
 import smart_trader
 import settings
-from managers.common import IST, get_exchange, log_event, get_time_str
-from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_history
+from managers.common import IST, log_event, get_time_str
+from managers.persistence import load_trades, save_trades, load_history
 from managers.broker_ops import move_to_history
+
+# Helper to ensure exchange is resolved correctly
+def get_exchange(symbol):
+    return smart_trader.get_exchange_name(symbol)
 
 def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets, trailing_sl, sl_to_entry, exit_multiplier, target_controls, target_channels=['main']):
     """
@@ -101,7 +105,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                     if trigger_dir == "ABOVE" and ltp >= entry_price: activated = True
                     elif trigger_dir == "BELOW" and ltp <= entry_price: activated = True
                     if activated:
-                        # [FIX] Sync final_status immediately so DB knows it's OPEN
+                        # Sync final_status immediately so DB knows it's OPEN
                         status = "OPEN"; final_status = "OPEN"; 
                         fill_price = entry_price; highest_ltp = max(fill_price, ltp)
                         logs.append(f"[{c_date_str}] 🚀 Order ACTIVATED @ {fill_price}")
@@ -184,13 +188,13 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                                     logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Rem: {current_qty}")
                     
                     if current_qty == 0:
-                         # [FIX] Force update Status if loop ends
+                         # Force update Status if loop ends
                          final_status = "TARGET_HIT"
                          if not exit_reason: exit_reason = "TARGET_HIT"
                          final_exit_price = ltp
                          break 
             
-            # Post-Exit Scan Logic (UPDATED & CORRECTED)
+            # Post-Exit Scan Logic
             if current_qty == 0:
                 skip_scan = (final_status == "SL_HIT" and len(targets_hit_indices) > 0)
                 if not skip_scan:
@@ -210,14 +214,12 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                             if c_h >= virtual_sl_price: is_dead = True
                         
                         if is_dead:
-                            # 🔴 Visual for Tracking Stopped
                             logs.append(f"[{c_time}] 🔴 Virtual SL Hit during scan. Tracking Stopped.")
                             break # STOP SCANNING
 
                         # 2. CHECK HIGH MADE
                         if c_h > highest_ltp:
                             highest_ltp = c_h
-                            # 🟢 Visual for Tracking Active
                             logs.append(f"[{c_time}] ℹ️ Post-Exit High Detected: {highest_ltp} 🟢")
                             
                             # Only Notify if T3 was previously hit (Moon Move Rule)
@@ -229,72 +231,72 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 break 
 
         # 4. Finalize & Save
-        with TRADE_LOCK:
-            current_ltp = entry_price
+        # removed TRADE_LOCK context
+        current_ltp = entry_price
+        
+        # Use final_status here
+        if final_status in ["OPEN", "PENDING"]:
+            try: 
+                q = kite.quote(f"{exchange}:{symbol}")
+                current_ltp = q[f"{exchange}:{symbol}"]['last_price']
+            except: 
+                if hist_data: current_ltp = hist_data[-1]['close']
             
-            # [FIX] Use final_status here instead of relying on loop logic
-            if final_status in ["OPEN", "PENDING"]:
-                try: 
-                    q = kite.quote(f"{exchange}:{symbol}")
-                    current_ltp = q[f"{exchange}:{symbol}"]['last_price']
-                except: 
-                    if hist_data: current_ltp = hist_data[-1]['close']
-                
-                record = {
-                    "id": int(time.time()), 
-                    "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
-                    "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
-                    "order_type": "MARKET", "status": final_status, 
-                    "entry_price": entry_price, 
-                    "quantity": current_qty if final_status == "OPEN" else qty,
-                    "sl": current_sl, "targets": t_list, 
-                    "target_controls": target_controls,
-                    "lot_size": smart_trader.get_lot_size(symbol), 
-                    "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
-                    "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
-                    "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-                    "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
-                    "is_replay": True, "last_update_time": hist_data[-1]['date'] if hist_data else get_time_str(),
-                    "target_channels": target_channels # Store channels in DB for future reference
-                }
-                trades = load_trades(); trades.append(record); save_trades(trades)
-                
-                return {
-                    "status": "success", 
-                    "message": f"Simulation Complete. Trade Still Active as {final_status}.",
-                    "notification_queue": notification_queue,
-                    "trade_ref": record
-                }
-                
-            else:
-                last_time = logs[-1].split(']')[0].replace('[', '')
-                if "Closed:" not in logs[-1]:
-                    logs.append(f"[{last_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {realized_pnl:.2f}")
+            record = {
+                "id": int(time.time()), 
+                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
+                "order_type": "MARKET", "status": final_status, 
+                "entry_price": entry_price, 
+                "quantity": current_qty if final_status == "OPEN" else qty,
+                "sl": current_sl, "targets": t_list, 
+                "target_controls": target_controls,
+                "lot_size": smart_trader.get_lot_size(symbol), 
+                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
+                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
+                "is_replay": True, "last_update_time": hist_data[-1]['date'] if hist_data else get_time_str(),
+                "target_channels": target_channels 
+            }
+            trades = load_trades(); trades.append(record); save_trades(trades)
+            
+            return {
+                "status": "success", 
+                "message": f"Simulation Complete. Trade Still Active as {final_status}.",
+                "notification_queue": notification_queue,
+                "trade_ref": record
+            }
+            
+        else:
+            last_time = logs[-1].split(']')[0].replace('[', '')
+            if "Closed:" not in logs[-1]:
+                logs.append(f"[{last_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {realized_pnl:.2f}")
 
-                record = {
-                    "id": int(time.time()), 
-                    "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
-                    "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
-                    "order_type": "MARKET", "status": final_status, 
-                    "entry_price": entry_price, "quantity": qty,
-                    "sl": current_sl, "targets": t_list, 
-                    "target_controls": target_controls,
-                    "lot_size": smart_trader.get_lot_size(symbol), 
-                    "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
-                    "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
-                    "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-                    "current_ltp": final_exit_price, "trigger_dir": trigger_dir, 
-                    "logs": logs, "is_replay": True, "pnl": realized_pnl,
-                    "target_channels": target_channels
-                }
-                move_to_history(record, exit_reason, final_exit_price)
-                
-                return {
-                    "status": "success", 
-                    "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}",
-                    "notification_queue": notification_queue,
-                    "trade_ref": record
-                }
+            record = {
+                "id": int(time.time()), 
+                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
+                "order_type": "MARKET", "status": final_status, 
+                "entry_price": entry_price, "quantity": qty,
+                "sl": current_sl, "targets": t_list, 
+                "target_controls": target_controls,
+                "lot_size": smart_trader.get_lot_size(symbol), 
+                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
+                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                "current_ltp": final_exit_price, "trigger_dir": trigger_dir, 
+                "logs": logs, "is_replay": True, "pnl": realized_pnl,
+                "target_channels": target_channels
+            }
+            move_to_history(record, exit_reason, final_exit_price)
+            
+            return {
+                "status": "success", 
+                "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}",
+                "notification_queue": notification_queue,
+                "trade_ref": record
+            }
 
     except Exception as e: 
         return {"status": "error", "message": str(e)}

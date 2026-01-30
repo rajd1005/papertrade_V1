@@ -2,25 +2,19 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import re
-from managers import zerodha_ticker
 
 # Global IST Timezone
 IST = pytz.timezone('Asia/Kolkata')
 
 instrument_dump = None 
 symbol_map = {} # FAST LOOKUP CACHE
-_cached_kite = None # Internal reference for auto-recovery
 
 def fetch_instruments(kite):
     """
     Downloads the master instrument list, optimizes dates, and builds a fast lookup map.
     Prioritizes specific exchanges (NFO > MCX > NSE) to handle duplicate symbols.
     """
-    global instrument_dump, symbol_map, _cached_kite
-    
-    # Cache kite instance for future auto-recovery calls
-    if kite:
-        _cached_kite = kite
+    global instrument_dump, symbol_map
     
     # If already loaded and map exists, skip to save bandwidth
     if instrument_dump is not None and not instrument_dump.empty and symbol_map: 
@@ -73,7 +67,7 @@ def get_exchange_name(symbol):
     """
     Determines the exchange (NSE, NFO, MCX) for a given symbol.
     """
-    global symbol_map
+    global symbol_map, instrument_dump
     
     # 1. Check if symbol already has exchange prefix (e.g. "NSE:RELIANCE")
     if ":" in symbol:
@@ -83,68 +77,50 @@ def get_exchange_name(symbol):
     if symbol_map and symbol in symbol_map:
         return symbol_map[symbol]['exchange']
         
-    # 3. Fallback Heuristics
+    # 3. Fallback Heuristics (if map not ready)
     if "NIFTY" in symbol or "BANKNIFTY" in symbol:
         if any(x in symbol for x in ["FUT", "CE", "PE"]): 
             return "NFO"
             
+    # Default to NSE if unable to determine
     return "NSE"
 
 def get_ltp(kite, symbol):
     """
-    Fetches LTP from WebSocket Cache ONLY.
-    NO API FALLBACK used here.
+    Fetches the Last Traded Price (LTP) with automatic exchange detection.
     """
     try:
-        # 1. Resolve Exchange & Token
-        exch = get_exchange_name(symbol)
-        token = get_instrument_token(symbol, exch)
-        
-        # 2. Try fetching from WebSocket Cache
-        if token and zerodha_ticker.ticker:
-            cached_price = zerodha_ticker.ticker.get_ltp(token)
-            if cached_price:
-                return cached_price
-            
-            # If valid token but missing in cache, Subscribe for NEXT time
-            zerodha_ticker.ticker.subscribe([token])
+        # 1. If symbol already has exchange (e.g., NSE:RELIANCE), try directly
+        if ":" in symbol:
+            quote = kite.quote(symbol)
+            if quote and symbol in quote:
+                return quote[symbol]['last_price']
 
-        # 3. NO API FALLBACK - Return 0 if not in Ticker
+        # 2. Determine Exchange
+        exch = get_exchange_name(symbol)
+        
+        # 3. Fetch Quote with constructed format
+        full_sym = f"{exch}:{symbol}"
+        quote = kite.quote(full_sym)
+        
+        if quote and full_sym in quote:
+            return quote[full_sym]['last_price']
+            
         return 0
     except Exception as e:
         print(f"⚠️ Error fetching LTP for {symbol}: {e}")
         return 0
 
 def get_indices_ltp(kite):
-    """
-    Fetches Indices LTP using Ticker ONLY.
-    """
-    indices_map = {
-        "NSE:NIFTY 50": "NIFTY",
-        "NSE:NIFTY BANK": "BANKNIFTY",
-        "BSE:SENSEX": "SENSEX"
-    }
-    
-    response = {"NIFTY": 0, "BANKNIFTY": 0, "SENSEX": 0}
-    
-    # 1. Try Ticker Cache
-    if zerodha_ticker.ticker:
-        for full_name, short_name in indices_map.items():
-            exch, sym = full_name.split(':')
-            token = get_instrument_token(sym, exch)
-            
-            val = 0
-            if token:
-                val = zerodha_ticker.ticker.get_ltp(token)
-                if not val:
-                    # Subscribe if missing so next call works
-                    zerodha_ticker.ticker.subscribe([token])
-            
-            if val:
-                response[short_name] = val
-
-    # 2. NO API FALLBACK
-    return response
+    try:
+        q = kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
+        return {
+            "NIFTY": q.get("NSE:NIFTY 50", {}).get('last_price', 0),
+            "BANKNIFTY": q.get("NSE:NIFTY BANK", {}).get('last_price', 0),
+            "SENSEX": q.get("BSE:SENSEX", {}).get('last_price', 0)
+        }
+    except:
+        return {"NIFTY":0, "BANKNIFTY":0, "SENSEX":0}
 
 def get_zerodha_symbol(common_name):
     if not common_name: return ""
@@ -169,13 +145,18 @@ def get_lot_size(tradingsymbol):
 
 def get_display_name(tradingsymbol):
     global symbol_map
-    if not symbol_map: return tradingsymbol
+    # Attempt to load if missing
+    if not symbol_map:
+        return tradingsymbol
+        
     try:
+        # Fast Lookup
         data = symbol_map.get(tradingsymbol)
         if data:
             name = data['name']
             inst_type = data['instrument_type']
             
+            # Handle expiry safely
             expiry_str = ""
             if 'expiry_date' in data:
                 ed = data['expiry_date']
@@ -196,6 +177,7 @@ def get_display_name(tradingsymbol):
 
 def search_symbols(kite, keyword, allowed_exchanges=None):
     global instrument_dump
+    
     if instrument_dump is None or instrument_dump.empty: 
         fetch_instruments(kite)
         if instrument_dump is None or instrument_dump.empty: return []
@@ -205,6 +187,7 @@ def search_symbols(kite, keyword, allowed_exchanges=None):
         allowed_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
     try:
+        # Filter Logic
         mask = (instrument_dump['exchange'].isin(allowed_exchanges)) & (instrument_dump['name'].str.startswith(k, na=False))
         matches = instrument_dump[mask]
         
@@ -213,7 +196,6 @@ def search_symbols(kite, keyword, allowed_exchanges=None):
         unique_matches = matches.drop_duplicates(subset=['name', 'exchange']).head(10)
         items_to_quote = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in unique_matches.iterrows()]
         
-        # Use API quote here as search is on-demand user action
         quotes = {}
         try:
             if items_to_quote: quotes = kite.quote(items_to_quote)
@@ -256,19 +238,36 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
 
     exchanges = rows['exchange'].unique().tolist()
     exchange_to_use = "NSE"
+    
     if preferred_exchange and preferred_exchange in exchanges:
         exchange_to_use = preferred_exchange
     else:
         for p in ['MCX', 'CDS', 'BSE', 'NSE']:
-             if p in exchanges: exchange_to_use = p; break
+             if p in exchanges: 
+                 exchange_to_use = p
+                 break
     
     quote_sym = f"{exchange_to_use}:{clean}"
     if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
     if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
     if clean == "SENSEX": quote_sym = "BSE:SENSEX"
     
-    # Use centralized Ticker-aware LTP
-    ltp = get_ltp(kite, quote_sym)
+    ltp = 0
+    try:
+        q = kite.quote(quote_sym)
+        if quote_sym in q: ltp = q[quote_sym]['last_price']
+    except: pass
+        
+    if ltp == 0:
+        try:
+            fut_exch = 'NFO' if exchange_to_use == 'NSE' else ('BFO' if exchange_to_use == 'BSE' else exchange_to_use)
+            if 'expiry_date' in rows.columns:
+                futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today) & (rows['exchange'] == fut_exch)]
+                if not futs_all.empty:
+                    near_fut = futs_all.sort_values('expiry_date').iloc[0]
+                    fut_sym = f"{near_fut['exchange']}:{near_fut['tradingsymbol']}"
+                    ltp = kite.quote(fut_sym)[fut_sym]['last_price']
+        except: pass
 
     lot = 1
     for ex in ['MCX', 'CDS', 'BFO', 'NFO']:
@@ -331,31 +330,29 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
 def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     ts = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not ts: return 0
-    # Use the robust Ticker-aware LTP fetcher
-    return get_ltp(kite, ts) 
-
-def get_instrument_token(tradingsymbol, exchange):
-    global symbol_map, instrument_dump, _cached_kite
-    
-    # 0. Lazy Load if missing (AUTO-RECOVERY with Cached Kite)
-    if (not symbol_map or instrument_dump is None or instrument_dump.empty) and _cached_kite:
-         print("🔄 Auto-recovering instrument list in get_instrument_token...")
-         fetch_instruments(_cached_kite)
-    
-    # 1. Fast Path: Check Hash Map first (Priority Exchange Match)
-    if symbol_map and tradingsymbol in symbol_map:
-        data = symbol_map[tradingsymbol]
-        if data['exchange'] == exchange:
-            return int(data['instrument_token'])
-            
-    # 2. Slow Path: Check DataFrame (Safe fallback for non-priority exchanges)
-    if instrument_dump is not None and not instrument_dump.empty:
-        try:
-            row = instrument_dump[(instrument_dump['tradingsymbol'] == tradingsymbol) & (instrument_dump['exchange'] == exchange)]
-            if not row.empty:
-                return int(row.iloc[0]['instrument_token'])
-        except: pass
+    try:
+        global instrument_dump, symbol_map
+        exch = "NFO"
         
+        # Optimized lookup using map first
+        if symbol_map and ts in symbol_map:
+            exch = symbol_map[ts]['exchange']
+        elif instrument_dump is not None and not instrument_dump.empty:
+             row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
+             if not row.empty: exch = row.iloc[0]['exchange']
+             
+        return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
+    except: return 0
+
+# --- NEW FUNCTIONS FOR IMPORT/BACKTEST ---
+def get_instrument_token(tradingsymbol, exchange):
+    global instrument_dump
+    if instrument_dump is None or instrument_dump.empty: return None
+    try:
+        row = instrument_dump[(instrument_dump['tradingsymbol'] == tradingsymbol) & (instrument_dump['exchange'] == exchange)]
+        if not row.empty:
+            return int(row.iloc[0]['instrument_token'])
+    except: pass
     return None
 
 def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
@@ -373,28 +370,46 @@ def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
         return []
 
 def get_telegram_symbol(tradingsymbol):
+    """
+    Converts raw Zerodha symbol to readable Telegram format.
+    Input:  NIFTY2412025900PE  -> Output: NIFTY 25900 PE 20JAN
+    Input:  NIFTY24JAN25900PE  -> Output: NIFTY 25900 PE JAN (Monthly)
+    Input:  RELIANCE           -> Output: RELIANCE
+    """
     try:
+        # Regex for Weekly Options: NIFTY 24 1 20 25900 PE
+        # Groups: 1=Name, 2=YY, 3=M(1-9,O,N,D), 4=DD, 5=Strike, 6=Type
         weekly_pattern = r"^([A-Z]+)(\d{2})([1-9OND])(\d{2})(\d+)(CE|PE)$"
         w_match = re.match(weekly_pattern, tradingsymbol)
+        
         if w_match:
             name, yy, m_char, dd, strike, opt_type = w_match.groups()
+            
+            # Map Month Char to Name
             m_map = {'1':'JAN', '2':'FEB', '3':'MAR', '4':'APR', '5':'MAY', '6':'JUN', 
                      '7':'JUL', '8':'AUG', '9':'SEP', 'O':'OCT', 'N':'NOV', 'D':'DEC'}
             month_str = m_map.get(m_char, '???')
+            
             return f"{name} {strike} {opt_type} {dd}{month_str}"
 
+        # Regex for Monthly Options: NIFTY 24 JAN 25900 PE
         monthly_pattern = r"^([A-Z]+)(\d{2})([A-Z]{3})(\d+)(CE|PE)$"
         m_match = re.match(monthly_pattern, tradingsymbol)
+        
         if m_match:
             name, yy, mon, strike, opt_type = m_match.groups()
             return f"{name} {strike} {opt_type} {mon}"
             
+        # Regex for Futures: NIFTY 24 JAN FUT
         fut_pattern = r"^([A-Z]+)(\d{2})([A-Z]{3})FUT$"
         f_match = re.match(fut_pattern, tradingsymbol)
         if f_match:
              name, yy, mon = f_match.groups()
              return f"{name} FUT {mon}"
 
+        # Default: Return original if no match (e.g., Equity)
         return tradingsymbol
-    except:
+
+    except Exception as e:
+        print(f"Symbol Parse Error: {e}")
         return tradingsymbol

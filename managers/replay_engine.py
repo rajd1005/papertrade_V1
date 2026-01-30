@@ -190,7 +190,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                          final_exit_price = ltp
                          break 
             
-            # Post-Exit Scan Logic (UPDATED)
+            # Post-Exit Scan Logic (UPDATED & CORRECTED)
             if current_qty == 0:
                 skip_scan = (final_status == "SL_HIT" and len(targets_hit_indices) > 0)
                 if not skip_scan:
@@ -210,13 +210,15 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                             if c_h >= virtual_sl_price: is_dead = True
                         
                         if is_dead:
+                            # 🔴 Visual for Tracking Stopped
                             logs.append(f"[{c_time}] 🔴 Virtual SL Hit during scan. Tracking Stopped.")
                             break # STOP SCANNING
 
                         # 2. CHECK HIGH MADE
                         if c_h > highest_ltp:
                             highest_ltp = c_h
-                            logs.append(f"[{c_time}] ℹ️ Post-Exit High Detected: {highest_ltp}")
+                            # 🟢 Visual for Tracking Active
+                            logs.append(f"[{c_time}] ℹ️ Post-Exit High Detected: {highest_ltp} 🟢")
                             
                             # Only Notify if T3 was previously hit (Moon Move Rule)
                             if 2 in targets_hit_indices:

@@ -190,9 +190,13 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             }
             
             # --- SEND TELEGRAM NOTIFICATION ---
-            # Async Call: No longer waits for return value. 
-            # Telegram IDs are updated asynchronously by the Telegram Manager.
-            telegram_bot.notify_trade_event(record, "NEW_TRADE")
+            msg_ids = telegram_bot.notify_trade_event(record, "NEW_TRADE")
+            if msg_ids:
+                record['telegram_msg_ids'] = msg_ids
+                if isinstance(msg_ids, dict):
+                    record['telegram_msg_id'] = msg_ids.get('main')
+                else:
+                    record['telegram_msg_id'] = msg_ids
             
             print(f"[DEBUG] Appending trade to list. Previous count: {len(trades)}")
             trades.append(record)

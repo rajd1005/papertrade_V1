@@ -395,100 +395,31 @@ function updateModeVisuals(mode) {
     let shadowCard = $('#shadow_live_card');
     let mainTitle = $('#main_pnl_title');
     
-    // Select the button more robustly (the ID doesn't exist in HTML provided, but class and type work)
-    let submitBtn = $('button[type="submit"][form="tradeForm"]');
-    submitBtn.removeClass('btn-dark btn-danger btn-primary btn-warning btn-success');
+    btn.removeClass('btn-dark btn-danger btn-primary btn-warning btn-success');
 
     if (mode === "SHADOW") {
         shadowCard.slideDown();
         mainCard.css('border', '2px solid #007bff'); 
         mainTitle.text("📄 Projected P&L (PAPER / BROADCAST)");
-        submitBtn.text("👻 Execute Shadow Trade");
-        submitBtn.addClass('btn-dark');
+        btn.text("👻 Execute Shadow Trade");
+        btn.addClass('btn-dark');
     } else {
         shadowCard.hide();
         if (mode === "LIVE") {
             mainCard.css('border', '1px solid red');
             mainTitle.text("🛡️ Projected P&L (LIVE)");
-            submitBtn.text("⚡ Execute LIVE Trade");
-            submitBtn.addClass('btn-danger');
+            btn.text("⚡ Execute LIVE Trade");
+            btn.addClass('btn-danger');
         } else {
             mainCard.css('border', '1px solid #007bff');
             mainTitle.text("🛡️ Projected P&L (PAPER)");
-            submitBtn.text("🚀 Execute Paper Trade");
-            submitBtn.addClass('btn-primary');
+            btn.text("Execute Paper Trade");
+            btn.addClass('btn-primary');
         }
     }
 }
 
-// --- NEW HELPER: Show Custom Floating Alert ---
-function showFloatingAlert(message, status) {
-    // Determine color based on status
-    let alertClass = 'alert-info';
-    if(status === 'success') alertClass = 'alert-success';
-    if(status === 'error') alertClass = 'alert-danger';
-    if(status === 'warning') alertClass = 'alert-warning';
-    
-    let html = `
-        <div class="alert ${alertClass} alert-dismissible fade show floating-alert shadow" role="alert" style="position: fixed; top: 20px; right: 20px; z-index: 9999; min-width: 300px;">
-            <strong>${status.toUpperCase()}!</strong> ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    `;
-    $('body').append(html);
-    
-    // Auto-remove after 4 seconds
-    setTimeout(function() {
-        $('.floating-alert').fadeOut('slow', function() {
-            $(this).remove();
-        });
-    }, 4000);
-}
-
 $(function() {
-    // --- NEW: AJAX Form Submission (No Reload) ---
-    $('#tradeForm').on('submit', function(e) {
-        e.preventDefault();
-        
-        let btn = $(this).find('button[type="submit"]');
-        let originalText = btn.text();
-        
-        // Disable button & show spinner
-        btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...');
-
-        let formData = new FormData(this);
-
-        $.ajax({
-            url: '/trade',
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(response) {
-                // Restore button state
-                btn.prop('disabled', false).text(originalText);
-                
-                // Show notification
-                showFloatingAlert(response.message, response.status);
-                
-                // If success, refresh the data table immediately
-                if(response.status === 'success' || response.status === 'warning') {
-                     if(typeof updateData === 'function') updateData();
-                     
-                     // Optional: Switch to Active Positions tab if not already there
-                     // switchTab('pos'); 
-                }
-            },
-            error: function(xhr) {
-                btn.prop('disabled', false).text(originalText);
-                let err = "Network Error";
-                if(xhr.responseJSON && xhr.responseJSON.message) err = xhr.responseJSON.message;
-                showFloatingAlert(err, 'error');
-            }
-        });
-    });
-    // ---------------------------------------------
-
     $('#ord').change(function() {
         if($(this).val() === 'LIMIT') {
             $('#lim_box').show();

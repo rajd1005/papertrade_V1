@@ -1,7 +1,6 @@
 from managers.common import log_event, get_time_str
 from managers.persistence import TRADE_LOCK, load_trades, save_trades, save_to_history_db
 import smart_trader
-import time
 
 def place_order(kite, symbol, transaction_type, quantity, order_type="MARKET", product="MIS", price=0, trigger_price=0, exchange=None, tag="RD_ALGO"):
     """
@@ -132,8 +131,6 @@ def panic_exit_all(kite):
                         product=kite.PRODUCT_MIS,
                         tag="PANIC_EXIT"
                     )
-                    # [UPDATED] Sleep 0.2s to prevent 'Rate Limit Exceeded' during mass exit
-                    time.sleep(0.2)
                 except Exception as e: 
                     print(f"Panic Broker Fail {t['symbol']}: {e}")
             

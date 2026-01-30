@@ -3,13 +3,12 @@ import smart_trader
 import settings
 from datetime import datetime
 from database import db, TradeHistory
-from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_history, load_todays_history, get_risk_state, save_risk_state
+from managers.persistence import TRADE_LOCK, load_trades, save_trades, load_history, get_risk_state, save_risk_state
 from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
-from managers import zerodha_ticker
 
-# --- End of Day Report Helper (Automated) ---
+# --- NEW: End of Day Report Helper (Automated) ---
 def send_eod_report(mode):
     """
     Generates and sends two Telegram reports:
@@ -17,11 +16,11 @@ def send_eod_report(mode):
     2. Aggregate Summary (Total P/L, Funds, Wins/Losses)
     """
     try:
-        # [OPTIMIZATION] Use load_todays_history() instead of loading full history
-        history = load_todays_history()
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        history = load_history()
         
-        # Filter for specific Mode (LIVE/PAPER)
-        todays_trades = [t for t in history if t['mode'] == mode]
+        # Filter for Today's trades in the specific Mode (LIVE/PAPER)
+        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
         
         if not todays_trades:
             return
@@ -35,7 +34,7 @@ def send_eod_report(mode):
         total_funds_used = 0.0
         total_max_potential = 0.0
         
-        # Counters
+        # Counters for specific request
         cnt_not_active = 0
         cnt_direct_sl = 0
 
@@ -73,6 +72,7 @@ def send_eod_report(mode):
             made_high = t.get('made_high', t.get('exit_price', entry))
             
             # --- TRACKING TAG LOGIC ---
+            # 🔴 = Virtual SL Hit (Tracking Stopped) | 🟢 = Still Tracking
             track_tag = "🟢"
             if t.get('virtual_sl_hit'):
                 track_tag = "🔴"
@@ -141,15 +141,18 @@ def send_eod_report(mode):
     except Exception as e:
         print(f"Error generating EOD report: {e}")
 
-# --- Manual Report Helpers ---
+# --- NEW: Manual Report Helpers (Triggered by Button) ---
 
 def send_manual_trade_status(mode):
     """
     Sends the detailed 'Final Trade Status' report for all trades of the day (Manual Trigger).
     """
     try:
-        history = load_todays_history()
-        todays_trades = [t for t in history if t['mode'] == mode]
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        history = load_history()
+        
+        # Filter for Today's trades in the specific Mode
+        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
         
         if not todays_trades:
             return {"status": "error", "message": "No trades found for today."}
@@ -167,6 +170,7 @@ def send_manual_trade_status(mode):
             qty = t.get('quantity', 0)
             pnl = t.get('pnl', 0)
             
+            # --- CUSTOM STATUS DISPLAY LOGIC ---
             display_status = raw_status
             is_direct_sl = False 
             
@@ -181,10 +185,13 @@ def send_manual_trade_status(mode):
                     display_status = "SL Hit (After Target)"
             
             made_high = t.get('made_high', t.get('exit_price', entry))
+            
+            # --- TRACKING TAG LOGIC ---
             track_tag = "🟢"
             if t.get('virtual_sl_hit'):
                 track_tag = "🔴"
 
+            # Suppress Potential for Direct SL
             if is_direct_sl:
                 made_high = entry 
                 max_pot_val = 0.0
@@ -192,6 +199,7 @@ def send_manual_trade_status(mode):
             else:
                 max_pot_val = (made_high - entry) * qty
                 if max_pot_val < 0: max_pot_val = 0
+                
                 pot_target = "None"
                 if len(targets) >= 3:
                     if made_high >= targets[2]: pot_target = "T3 ✅"
@@ -217,9 +225,15 @@ def send_manual_trade_status(mode):
         return {"status": "error", "message": str(e)}
 
 def send_manual_trade_report(trade_id):
+    """
+    Sends a detailed status report for a SINGLE specific trade.
+    """
     try:
+        # Look in History first
         history = load_history()
         trade = next((t for t in history if str(t['id']) == str(trade_id)), None)
+        
+        # If not in history, check Active trades
         if not trade:
             active = load_trades()
             trade = next((t for t in active if str(t['id']) == str(trade_id)), None)
@@ -227,6 +241,7 @@ def send_manual_trade_report(trade_id):
         if not trade:
             return {"status": "error", "message": "Trade not found"}
 
+        # Construct Message
         raw_symbol = trade.get('symbol', 'Unknown')
         symbol = smart_trader.get_telegram_symbol(raw_symbol)
         
@@ -237,6 +252,7 @@ def send_manual_trade_report(trade_id):
         qty = trade.get('quantity', 0)
         pnl = trade.get('pnl', 0)
         
+        # --- CUSTOM STATUS DISPLAY LOGIC ---
         display_status = raw_status
         is_direct_sl = False
 
@@ -247,18 +263,25 @@ def send_manual_trade_report(trade_id):
             display_status = "Stop-Loss"
             is_direct_sl = True
         
+        # Use made_high if available, else exit price, else entry
         made_high = trade.get('made_high', trade.get('exit_price', entry))
+        
+        # --- TRACKING TAG LOGIC ---
         track_tag = "🟢"
         if trade.get('virtual_sl_hit'):
             track_tag = "🔴"
         
+        # --- FIX: Suppress Potential for Direct SL ---
         if is_direct_sl:
             made_high = entry 
             max_pot_val = 0.0
             pot_target = "None"
         else:
+            # Max Potential
             max_pot_val = (made_high - entry) * qty
             if max_pot_val < 0: max_pot_val = 0
+            
+            # Potential Target Logic
             pot_target = "None"
             if len(targets) >= 3:
                 if made_high >= targets[2]: pot_target = "T3 ✅"
@@ -275,15 +298,23 @@ def send_manual_trade_report(trade_id):
             f"Potential Target: {pot_target}\n"
             f"Max Potential: {max_pot_val:.2f}"
         )
+        
         telegram_bot.send_message(msg)
         return {"status": "success"}
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 def send_manual_summary(mode):
+    """
+    Sends the Aggregate Summary for the current day.
+    """
     try:
-        history = load_todays_history()
-        todays_trades = [t for t in history if t['mode'] == mode]
+        # This function reuses the logic to include the new counts
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        history = load_history()
+        
+        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
         
         if not todays_trades:
             return {"status": "error", "message": "No trades found for today."}
@@ -293,6 +324,7 @@ def send_manual_summary(mode):
         total_loss = 0.0
         total_funds_used = 0.0
         total_max_potential = 0.0
+        
         cnt_not_active = 0
         cnt_direct_sl = 0
 
@@ -304,6 +336,8 @@ def send_manual_summary(mode):
             raw_status = t.get('status', 'CLOSED')
 
             is_direct_sl = False
+
+            # Counters
             if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
                 cnt_not_active += 1
                 is_direct_sl = True
@@ -314,8 +348,10 @@ def send_manual_summary(mode):
             total_pnl += pnl
             if pnl >= 0: total_wins += pnl
             else: total_loss += pnl
+            
             total_funds_used += (entry * qty)
             
+            # --- FIX: Suppress Potential in Summary too ---
             if not is_direct_sl:
                 max_pot_val = (made_high - entry) * qty
                 if max_pot_val < 0: max_pot_val = 0
@@ -333,36 +369,47 @@ def send_manual_summary(mode):
             f"🚫 Not Active: {cnt_not_active}\n"
             f"🛑 Direct SL: {cnt_direct_sl}"
         )
+        
         telegram_bot.send_message(msg_summary)
         return {"status": "success"}
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 def check_global_exit_conditions(kite, mode, mode_settings):
     """
     Checks and executes global risk rules:
-    1. Universal Square-off Time
-    2. Profit Locking
+    1. Universal Square-off Time (e.g., 15:25) -> NOW SEND REPORT ALWAYS (ONCE)
+    2. Profit Locking (Global PnL Trailing)
     """
     with TRADE_LOCK:
         trades = load_trades()
         now = datetime.now(IST)
         exit_time_str = mode_settings.get('universal_exit_time', "15:25")
         today_str = now.strftime("%Y-%m-%d")
+        
+        # Load State to check if we already ran EOD today
         state = get_risk_state(mode)
         
-        # 1. TIME EXIT
+        # --- 1. TIME BASED EXIT & REPORT ---
         try:
             exit_dt = datetime.strptime(exit_time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
             exit_dt = IST.localize(exit_dt.replace(tzinfo=None))
             
+            # Trigger within 2 minutes of the time
             if now >= exit_dt and (now - exit_dt).seconds < 120:
+                 
+                 # Check if already done for today to prevent spam
                  if state.get('last_eod_date') != today_str:
+                     
+                     # 1. Close Active Trades (If Any)
                      active_mode = [t for t in trades if t['mode'] == mode]
                      if active_mode:
                          for t in active_mode:
+                             # Determine if it's ACTIVE or PENDING
                              exit_reason = "TIME_EXIT"
                              exit_price = t.get('current_ltp', 0)
+                             
                              if t['status'] == 'PENDING':
                                  exit_reason = "NOT_ACTIVE"
                                  exit_price = t['entry_price']
@@ -372,25 +419,34 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                                 try: 
                                     kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                                 except: pass
+                             
                              move_to_history(t, exit_reason, exit_price)
                          
+                         # Save remaining trades
                          remaining = [t for t in trades if t['mode'] != mode]
                          save_trades(remaining)
                      
+                     # 2. Send EOD Report (ALWAYS, triggers once)
                      send_eod_report(mode)
+                     
+                     # 3. Mark as Done
                      state['last_eod_date'] = today_str
                      save_risk_state(mode, state)
+                     
                      return
         except Exception as e: 
             print(f"Time Check Error: {e}")
 
-        # 2. PROFIT LOCKING
+        # --- 2. PROFIT LOCKING (Global Trailing) ---
         pnl_start = float(mode_settings.get('profit_lock', 0))
         if pnl_start > 0:
             current_total_pnl = 0.0
-            history = load_todays_history()
+            
+            # Calculate PnL consistency (Realized + Unrealized)
+            today_str = datetime.now(IST).strftime("%Y-%m-%d")
+            history = load_history()
             for t in history:
-                if t['mode'] == mode: 
+                if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode: 
                     current_total_pnl += t.get('pnl', 0)
             
             active = [t for t in trades if t['mode'] == mode]
@@ -398,6 +454,7 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                 if t['status'] != 'PENDING':
                     current_total_pnl += (t.get('current_ltp', t['entry_price']) - t['entry_price']) * t['quantity']
 
+            # Activation: Reach minimum threshold
             if not state.get('active') and current_total_pnl >= pnl_start:
                 state['active'] = True
                 state['high_pnl'] = current_total_pnl
@@ -405,15 +462,18 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                 save_risk_state(mode, state)
             
             if state.get('active'):
+                # Trail the Global SL up
                 if current_total_pnl > state['high_pnl']:
                     diff = current_total_pnl - state['high_pnl']
                     trail_step = float(mode_settings.get('profit_trail', 0))
+                    
                     if trail_step > 0 and diff >= trail_step:
                          steps = int(diff / trail_step)
                          state['global_sl'] += (steps * trail_step)
                          state['high_pnl'] = current_total_pnl
                          save_risk_state(mode, state)
 
+                # Breach: Global SL Hit
                 if current_total_pnl <= state['global_sl']:
                     active_mode = [t for t in trades if t['mode'] == mode]
                     for t in active_mode:
@@ -422,27 +482,35 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                             try: 
                                 kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                             except: pass
+                         
                          move_to_history(t, "PROFIT_LOCK", t.get('current_ltp', 0))
                     
                     remaining = [t for t in trades if t['mode'] != mode]
                     save_trades(remaining)
+                    
+                    # Reset State
                     state['active'] = False
                     save_risk_state(mode, state)
 
 def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
-    NOW STRICTLY WEBSOCKET ONLY (No API Fallback).
-    Fix: Smarter Subscription logic to prevent spamming Zerodha.
+    Updates prices, checks SL/Target hits, and triggers exits.
     """
+    # Check Global Conditions first
     current_settings = settings.load_settings()
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
     check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
 
     with TRADE_LOCK:
         active_trades = load_trades()
-        todays_closed = load_todays_history()
+        
+        # Load Today's Closed Trades for Missed Opportunity Tracking
+        history = load_history()
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        todays_closed = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str)]
 
+        # Combine Active Symbols AND Closed Symbols for Data Fetching
         active_symbols = [f"{t['exchange']}:{t['symbol']}" for t in active_trades]
         closed_symbols = [f"{t['exchange']}:{t['symbol']}" for t in todays_closed]
         
@@ -451,58 +519,32 @@ def update_risk_engine(kite):
         if not all_instruments: 
             return
 
-        # --- SMART SUBSCRIPTION & FETCHING ---
-        live_prices = {}
-        tokens_to_sub = []
+        # Fetch Live Prices
+        try: 
+            live_prices = kite.quote(all_instruments)
+        except: 
+            return
 
-        if zerodha_ticker.ticker:
-            for inst in all_instruments:
-                parts = inst.split(":")
-                if len(parts) == 2:
-                    exch, sym = parts
-                    tok = smart_trader.get_instrument_token(sym, exch)
-                    if tok:
-                        # 1. Try to get LTP from cache
-                        ltp = zerodha_ticker.ticker.get_ltp(tok)
-                        
-                        if ltp and ltp > 0:
-                            # Data exists, use it
-                            live_prices[inst] = {'last_price': ltp}
-                        else:
-                            # Data missing, mark for subscription
-                            tokens_to_sub.append(tok)
-            
-            # 2. Subscribe only to tokens that are missing data
-            if tokens_to_sub:
-                # Deduplicate to be safe
-                unique_tokens = list(set(tokens_to_sub))
-                # print(f"[RiskEngine] Subscribing to missing tokens: {unique_tokens}") # Debug log
-                zerodha_ticker.ticker.subscribe(unique_tokens)
-                # Data will arrive in the next tick(s)
-
-        # --- Process ACTIVE TRADES ---
+        # --- 1. Process ACTIVE TRADES ---
         active_list = []
         updated = False
         
         for t in active_trades:
+            # SAFETY BLOCK: Prevent one trade error from crashing the whole loop
             try:
                 inst_key = f"{t['exchange']}:{t['symbol']}"
-                
-                # Check if we have valid price data
                 if inst_key not in live_prices:
-                     # If missing, keep the trade but don't process logic this tick.
-                     # Since we subscribed above, data should arrive shortly.
                      active_list.append(t)
                      continue
                      
                 ltp = live_prices[inst_key]['last_price']
                 
-                # Update LTP immediately
+                # CRITICAL: Always update LTP first, before any logic that might fail
                 if t.get('current_ltp') != ltp:
                     t['current_ltp'] = ltp
                     updated = True
                 
-                # A. PENDING ORDERS
+                # A. PENDING ORDERS (Activation Logic)
                 if t['status'] == "PENDING":
                     condition_met = False
                     if t.get('trigger_dir') == 'BELOW':
@@ -514,13 +556,16 @@ def update_risk_engine(kite):
                         t['status'] = "OPEN"
                         t['highest_ltp'] = t['entry_price']
                         log_event(t, f"Order ACTIVATED @ {ltp}")
-                        updated = True
                         
+                        # --- TELEGRAM NOTIFICATION: ACTIVE ---
                         telegram_bot.notify_trade_event(t, "ACTIVE", ltp)
                         
                         if t['mode'] == 'LIVE':
                             try: 
+                                # Place Market Buy
                                 kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                                
+                                # Place SL-M
                                 try:
                                     sl_id = kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_SL_M, product=kite.PRODUCT_MIS, trigger_price=t['sl'])
                                     t['sl_order_id'] = sl_id
@@ -542,8 +587,9 @@ def update_risk_engine(kite):
                     if ltp > current_high:
                         t['highest_ltp'] = ltp
                         t['made_high'] = ltp
-                        updated = True
                         
+                        # --- TELEGRAM NOTIFICATION: HIGH MADE ---
+                        # Correct logic: Check if T3 hit OR Price > T3
                         has_crossed_t3 = False
                         if 2 in t.get('targets_hit_indices', []):
                             has_crossed_t3 = True
@@ -563,6 +609,7 @@ def update_risk_engine(kite):
                             steps_to_move = int(diff / step)
                             new_sl = current_sl + (steps_to_move * step)
                             
+                            # Trailing Limits (Cap SL to Entry/Targets)
                             sl_limit = float('inf')
                             mode = int(t.get('sl_to_entry', 0))
                             if mode == 1: sl_limit = t['entry_price']
@@ -574,7 +621,7 @@ def update_risk_engine(kite):
                             
                             if new_sl > t['sl']:
                                 t['sl'] = new_sl
-                                updated = True
+                                # Sync Broker
                                 if t['mode'] == 'LIVE' and t.get('sl_order_id'):
                                     try: 
                                         kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], trigger_price=new_sl)
@@ -596,11 +643,12 @@ def update_risk_engine(kite):
                         for i, tgt in enumerate(t['targets']):
                             if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
                                 t.setdefault('targets_hit_indices', []).append(i)
-                                updated = True
                                 conf = controls[i]
                                 
+                                # --- TELEGRAM NOTIFICATION: TARGET HIT ---
                                 telegram_bot.notify_trade_event(t, "TARGET_HIT", {'t_num': i+1, 'price': tgt})
 
+                                # Feature: Trail SL to Entry on Target Hit
                                 if conf.get('trail_to_entry') and t['sl'] < t['entry_price']:
                                     t['sl'] = t['entry_price']
                                     log_event(t, f"Target {i+1} Hit: SL Trailed to Entry ({t['sl']})")
@@ -615,11 +663,13 @@ def update_risk_engine(kite):
                                 lot_size = t.get('lot_size') or smart_trader.get_lot_size(t['symbol'])
                                 qty_to_exit = conf.get('lots', 0) * lot_size
                                 
+                                # Full Exit vs Partial Exit
                                 if qty_to_exit >= t['quantity']:
                                      exit_triggered = True
                                      exit_reason = "TARGET_HIT"
                                      break
                                 elif qty_to_exit > 0:
+                                     # Partial Exit
                                      if t['mode'] == 'LIVE': 
                                          manage_broker_sl(kite, t, qty_to_exit)
                                      
@@ -633,7 +683,6 @@ def update_risk_engine(kite):
 
                     # --- Execute Exit ---
                     if exit_triggered:
-                        updated = True
                         if t['mode'] == "LIVE":
                             manage_broker_sl(kite, t, cancel_completely=True)
                             try: 
@@ -642,6 +691,7 @@ def update_risk_engine(kite):
                         
                         final_price = t['sl'] if exit_reason=="SL_HIT" else (t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp)
                         
+                        # --- TELEGRAM NOTIFICATION: EXIT ---
                         if exit_reason == "SL_HIT":
                             trade_snap = t.copy()
                             trade_snap['exit_price'] = final_price
@@ -652,17 +702,19 @@ def update_risk_engine(kite):
                     else:
                         active_list.append(t)
             except Exception as e:
-                # Log error but don't crash loop
+                # SAFETY CATCH
                 print(f"Error processing trade {t.get('symbol', 'UNKNOWN')}: {e}")
                 active_list.append(t)
         
+        # Save Active Trades if updated
         if updated: 
             save_trades(active_list)
 
-        # --- Process CLOSED TRADES (Missed Opportunity Tracker) ---
+        # --- 2. Process CLOSED TRADES (Missed Opportunity Tracker) ---
         history_updated = False
         try:
             for t in todays_closed:
+                # 1. Skip if already marked as Virtual SL Hit
                 if t.get('virtual_sl_hit', False):
                     continue
 
@@ -670,9 +722,11 @@ def update_risk_engine(kite):
                 if inst_key in live_prices:
                     ltp = live_prices[inst_key]['last_price']
                     
+                    # Update LTP for visibility
                     t['current_ltp'] = ltp
 
-                    # Check Virtual SL
+                    # 2. Check Virtual SL (If LTP touches SL, stop tracking)
+                    # Handle Direction: BUY (Entry > SL) vs SELL (Entry < SL)
                     is_dead = False
                     if t['entry_price'] > t['sl']: # BUY
                          if ltp <= t['sl']: is_dead = True
@@ -685,14 +739,17 @@ def update_risk_engine(kite):
                         history_updated = True
                         continue
 
-                    # Check High Made
+                    # 3. Check High Made (Only if alive)
                     current_high = t.get('made_high', t['entry_price'])
                     if ltp > current_high:
                         t['made_high'] = ltp
+                        
+                        # --- NOTIFICATION: High Made on Closed Trade ---
                         try:
                             telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
                         except: pass
                         
+                    # Direct DB merge for efficiency (updating historical record)
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     history_updated = True
                     

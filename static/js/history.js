@@ -414,22 +414,30 @@ async function runBatchSimulation() {
 }
 
 // --- Real-Time Listener for Closed Trades ---
-if (typeof socket !== 'undefined') {
-    socket.on('closed_trade_update', function(updates) {
-        updates.forEach(t => {
-            // 1. Update Global Cache
-            let existing = allClosedTrades.find(x => x.id == t.id);
-            if(existing) {
-                existing.current_ltp = t.current_ltp;
-                existing.made_high = t.made_high; 
-            }
+// Wrapped in document.ready to ensure 'socket' from main.js is available
+$(document).ready(function() {
+    if (typeof socket !== 'undefined') {
+        socket.on('closed_trade_update', function(updates) {
+            updates.forEach(t => {
+                // 1. Update Global Cache
+                let existing = allClosedTrades.find(x => x.id == t.id);
+                if(existing) {
+                    existing.current_ltp = t.current_ltp;
+                    existing.made_high = t.made_high; 
+                }
 
-            // 2. Direct DOM Update for Live LTP
-            let el = $(`#ltp-${t.id}`);
-            if(el.length) {
-                el.text(t.current_ltp.toFixed(2));
-                el.addClass(t.current_ltp >= t.entry_price ? 'text-success' : 'text-danger');
-            }
+                // 2. Direct DOM Update for Live LTP
+                let el = $(`#ltp-${t.id}`);
+                if(el.length) {
+                    el.text(t.current_ltp.toFixed(2));
+                    
+                    // Flash effect
+                    el.removeClass('text-success text-danger');
+                    el.addClass(t.current_ltp >= t.entry_price ? 'text-success' : 'text-danger');
+                }
+            });
         });
-    });
-}
+    } else {
+        console.warn("Socket.IO not initialized when history.js loaded.");
+    }
+});

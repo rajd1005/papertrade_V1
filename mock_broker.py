@@ -18,7 +18,7 @@ TOKEN_TO_SYMBOL = {}
 
 # Configuration
 SIM_CONFIG = {
-    "active": True, # Default to Active for immediate testing
+    "active": True, 
     "volatility": 0.05,
     "speed": 1.0,
     "trend": "SIDEWAYS"
@@ -93,7 +93,6 @@ class MockKiteConnect:
         inst_list = []
         global TOKEN_TO_SYMBOL
         
-        # Helper to add instrument
         def add_inst(token, sym, name, exch, type_, lot, strike=0, expiry=None):
             TOKEN_TO_SYMBOL[token] = f"{exch}:{sym}"
             inst_list.append({
@@ -159,8 +158,6 @@ class MockKiteConnect:
         return True
 
     def historical_data(self, *args, **kwargs): 
-        # Generate dummy candles for Replay Engine
-        # Returns list of dicts with 'date', 'open', 'high', 'low', 'close'
         data = []
         base = 100.0
         now = datetime.datetime.now()
@@ -204,7 +201,7 @@ class MockKiteTicker:
         print(f"📡 [MOCK TICKER] Subscribed to {len(tokens)} tokens")
 
     def set_mode(self, mode, tokens):
-        pass # No-op for mock
+        pass 
 
     def _tick_loop(self):
         while not self._stop_event.is_set():
@@ -227,4 +224,4 @@ class MockKiteTicker:
             if ticks and self.on_ticks:
                 self.on_ticks(self, ticks)
             
-            time.sleep(1) # 1 Tick per second
+            time.sleep(1)

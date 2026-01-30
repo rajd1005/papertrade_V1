@@ -1,10 +1,37 @@
+// Global Socket Object
+var socket = null;
+
 $(document).ready(function() {
     // --- CONFIGURATION ---
-    const REFRESH_INTERVAL = 1000; // 3 Seconds Refresh for Stability
+    const REFRESH_INTERVAL = 3000; // 3 Seconds for Background Sync (Indices/Login State)
     // ---------------------
 
+    // --- WEBSOCKET INITIALIZATION ---
+    // This connects to the SocketIO server started in main.py
+    socket = io();
+
+    socket.on('connect', function() {
+        console.log("✅ Frontend Connected to WebSocket!");
+        // Visual confirmation of live connection
+        $('#status-badge').attr('class', 'badge bg-success shadow-sm').html('<i class="fas fa-wifi"></i> Live Feed');
+    });
+
+    socket.on('disconnect', function() {
+        console.log("❌ Frontend Disconnected");
+        $('#status-badge').attr('class', 'badge bg-danger shadow-sm').html('Socket Lost');
+    });
+
+    // Listen for Real-Time Trade Updates from Risk Engine
+    socket.on('trade_update', function(data) {
+        // 'data' is the fresh list of active trades from Python
+        if(typeof renderActivePositions === 'function') {
+            renderActivePositions(data);
+        }
+    });
+    // ---------------------------------
+
     renderWatchlist();
-    loadSettings();
+    if(typeof loadSettings === 'function') loadSettings();
     
     // Date Logic
     let now = new Date(); 
@@ -76,7 +103,8 @@ $(document).ready(function() {
     // Loops
     setInterval(updateClock, 1000); updateClock();
     
-    // Trade Data Update Loop (Uses Configured Interval)
+    // Background Sync Loop (Indices, Login Status)
+    // Trades are now pushed via Socket, so this can be slower (3s) to save bandwidth
     setInterval(updateData, REFRESH_INTERVAL); updateData();
 });
 

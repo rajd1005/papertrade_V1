@@ -32,9 +32,10 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 login_state = "IDLE" 
 login_error_msg = None 
+ticker_started = False  # [NEW] Track WebSocket State
 
 def run_auto_login_process():
-    global bot_active, login_state, login_error_msg
+    global bot_active, login_state, login_error_msg, ticker_started
     
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
         login_state = "FAILED"
@@ -59,6 +60,7 @@ def run_auto_login_process():
                 
                 bot_active = True
                 login_state = "IDLE"
+                ticker_started = False # [NEW] Reset ticker state to force restart
                 gc.collect()
                 
                 # [NOTIFICATION] Success
@@ -97,7 +99,7 @@ def run_auto_login_process():
         login_error_msg = str(e)
 
 def background_monitor():
-    global bot_active, login_state
+    global bot_active, login_state, ticker_started
     
     # [FIXED] Wrapped Startup Notification in App Context
     with app.app_context():
@@ -128,8 +130,22 @@ def background_monitor():
                         except Exception as e:
                             raise e 
                         
-                        # Run Strategy Logic (Risk Engine)
-                        risk_engine.update_risk_engine(kite)
+                        # --- [NEW] WEBSOCKET LOGIC REPLACEMENT ---
+                        
+                        # 1. Start WebSocket if not running
+                        if not ticker_started:
+                            print("🚀 Starting Zerodha WebSocket...")
+                            risk_engine.start_ticker(config.API_KEY, kite.access_token, kite, app)
+                            ticker_started = True
+                        
+                        # 2. Sync Subscriptions (Handles new manual trades)
+                        risk_engine.update_subscriptions()
+                        
+                        # 3. Run Global Checks (Time Exit / Profit Lock)
+                        # These run independently of the price ticker
+                        current_settings = settings.load_settings()
+                        risk_engine.check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
+                        risk_engine.check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
                         
                     except Exception as e:
                         err = str(e)
@@ -140,6 +156,7 @@ def background_monitor():
                                 telegram_bot.notify_system_event("OFFLINE", f"Connection Lost: {err}")
                             
                             bot_active = False 
+                            ticker_started = False # Reset ticker state
                         else:
                             print(f"⚠️ Risk Loop Warning: {err}")
 
@@ -165,7 +182,7 @@ def background_monitor():
             finally:
                 db.session.remove()
         
-        time.sleep(0.5) 
+        time.sleep(1.0) # Sleep increased as we are no longer polling prices
 
 @app.route('/')
 def home():
@@ -194,25 +211,27 @@ def api_status():
 
 @app.route('/reset_connection')
 def reset_connection():
-    global bot_active, login_state
+    global bot_active, login_state, ticker_started
     
     # [NOTIFICATION] Manual Reset
     telegram_bot.notify_system_event("RESET", "Manual Connection Reset Initiated.")
     
     bot_active = False
     login_state = "IDLE"
+    ticker_started = False # Reset ticker
     flash("🔄 Connection Reset. Login Monitor will retry.")
     return redirect('/')
 
 @app.route('/callback')
 def callback():
-    global bot_active
+    global bot_active, ticker_started
     t = request.args.get("request_token")
     if t:
         try:
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
             bot_active = True
+            ticker_started = False # Reset ticker to force restart
             smart_trader.fetch_instruments(kite)
             gc.collect()
             
@@ -420,25 +439,9 @@ def api_import_trade():
         if not final_sym: return jsonify({"status": "error", "message": "Invalid Symbol/Strike"})
         
         # --- NEW: Extract Channel Selection from Request ---
-        # Default to 'main' if missing. Logic handles single selection.
         selected_channel = data.get('target_channel', 'main')
         
-        # Construct target_channels list. 
-        # 'main' is always primary for internal logic, but we want to broadcast to the selected one.
-        # If user selected VIP, Free, or Z2H, we pass that along with 'main' logic (or replace it depending on telegram manager logic).
-        # Typically, telegram_manager broadcasts to 'main' AND any others in the list.
-        # If the requirement is "only one telegram channel", we pass that specific one.
-        
-        # However, to maintain system compatibility (where 'main' might be used for logging), 
-        # we usually pass ['main', 'vip'] etc. 
-        # BUT, if the user explicitly wants ONLY one channel (e.g. Free), we can pass just that if the backend supports it.
-        # Assuming standard logic: Main is always required for system logs? 
-        # Let's stick to the requested behavior: "only one telegram channel can be selected".
-        
         target_channels = [selected_channel] 
-        # Note: If 'main' was not selected, we might miss system logs if the bot logic relies on 'main' key.
-        # To be safe, usually we send ['main', selected_channel] if selected != main. 
-        # But if the user strictly wants ONE channel, we pass that list.
         
         # Call Replay Engine with channels
         result = replay_engine.import_past_trade(
@@ -470,8 +473,6 @@ def api_import_trade():
                         # Handle Structure: If dict, save dict. If int (legacy), wrap it.
                         if isinstance(msg_ids, dict):
                             ids_dict = msg_ids
-                            # If we sent to 'free', main_id might be None or the id for free channel
-                            # We grab the ID corresponding to the selected channel as the "primary" reference
                             main_id = msg_ids.get(selected_channel) or msg_ids.get('main')
                         else:
                             ids_dict = {'main': msg_ids}

@@ -1,9 +1,5 @@
 import json
-import threading
 from database import db, ActiveTrade, TradeHistory, RiskState, TelegramMessage
-
-# Global Lock for thread safety
-TRADE_LOCK = threading.Lock()
 
 # --- Risk State Persistence ---
 def get_risk_state(mode):
@@ -76,16 +72,15 @@ def load_history():
 
 def delete_trade(trade_id):
     from managers.telegram_manager import bot as telegram_bot
-    with TRADE_LOCK:
-        try:
-            telegram_bot.delete_trade_messages(trade_id)
-            TradeHistory.query.filter_by(id=int(trade_id)).delete()
-            db.session.commit()
-            return True
-        except Exception as e:
-            print(f"Delete Trade Error: {e}")
-            db.session.rollback()
-            return False
+    try:
+        telegram_bot.delete_trade_messages(trade_id)
+        TradeHistory.query.filter_by(id=int(trade_id)).delete()
+        db.session.commit()
+        return True
+    except Exception as e:
+        print(f"Delete Trade Error: {e}")
+        db.session.rollback()
+        return False
 
 def save_to_history_db(trade_data):
     try:

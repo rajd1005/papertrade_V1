@@ -1,7 +1,7 @@
 // Global Socket Object
 var socket = null;
 
-// Real-Time Polling Interval (1 Second)
+// [CRITICAL] Set to 1000ms (1 Second) for Real-Time feel
 const REFRESH_INTERVAL = 1000; 
 
 $(document).ready(function() {
@@ -20,6 +20,7 @@ $(document).ready(function() {
         $('#status-badge').attr('class', 'badge bg-danger shadow-sm').html('Socket Lost');
     });
 
+    // Listen for Real-Time Trade Updates (Primary High-Speed Feed)
     socket.on('trade_update', function(data) {
         if(typeof renderActivePositions === 'function') {
             renderActivePositions(data);
@@ -133,7 +134,7 @@ $(document).ready(function() {
     updateData(); 
 });
 
-// --- CORE DATA SYNC FUNCTION (Updated to handle BOTH forms) ---
+// --- CORE DATA SYNC FUNCTION (Updated to handle BOTH forms & Fallback) ---
 function updateData() {
     let payload = {
         include_closed: $('#pills-history-tab').hasClass('active'),
@@ -199,6 +200,7 @@ function updateData() {
                 if ($('#importModal').is(':visible')) {
                     // Update Import Modal
                     $('#imp_ltp_display').text(response.specific_ltp);
+                    // Auto-fill price only if empty or previously auto-filled
                     if ($('#imp_price').val() == "" || $('#imp_price').data('auto') == "true") {
                         $('#imp_price').val(response.specific_ltp).data('auto', "true");
                         if(typeof calcImpFromPts === 'function') calcImpFromPts();
@@ -209,7 +211,13 @@ function updateData() {
                 }
             }
             
-            // 4. Closed Trades
+            // 4. [NEW] Backup Active Trades Rendering
+            // This ensures trades update every 1s even if WebSocket fails
+            if (response.positions && typeof renderActivePositions === 'function') {
+                renderActivePositions(response.positions);
+            }
+            
+            // 5. Closed Trades
             if (response.closed_trades && typeof renderHistoryTable === 'function') {
                 renderHistoryTable(response.closed_trades);
             }

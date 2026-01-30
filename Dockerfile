@@ -1,7 +1,7 @@
 # Use Python 3.9 as base
 FROM python:3.9
 
-# 1. Install Chrome and Dependencies (Modern GPG method)
+# 1. Install Chrome and Dependencies
 RUN apt-get update && apt-get install -y wget gnupg unzip && \
     wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | \
     gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy all project files
 COPY . .
 
-# 5. [CRITICAL UPDATE] Use 'eventlet' worker for WebSockets
-# We use 1 worker (-w 1) because eventlet handles concurrency via green threads.
-CMD ["gunicorn", "-k", "eventlet", "-w", "1", "-b", "0.0.0.0:8080", "main:app"]
+# 5. [FIXED] Start directly with Python
+# This triggers socketio.run() in main.py, which uses eventlet correctly.
+ENV PORT=8080
+CMD ["python", "main.py"]

@@ -1,10 +1,11 @@
 // Global Socket Object
 var socket = null;
-const REFRESH_INTERVAL = 3000; // 3 Seconds for Background Sync
+
+// [CHANGED] Reduced to 1000ms (1 Second) for Real-Time feel
+const REFRESH_INTERVAL = 1000; 
 
 $(document).ready(function() {
     // --- WEBSOCKET INITIALIZATION ---
-    // Connect to the SocketIO server
     socket = io();
 
     socket.on('connect', function() {
@@ -19,10 +20,8 @@ $(document).ready(function() {
         $('#status-badge').attr('class', 'badge bg-danger shadow-sm').html('Socket Lost');
     });
 
-    // Listen for Real-Time Trade Updates from Risk Engine
+    // Listen for Real-Time Trade Updates (Active Positions)
     socket.on('trade_update', function(data) {
-        // 'data' is the fresh list of active trades from Python
-        // We defer the rendering to positions.js
         if(typeof renderActivePositions === 'function') {
             renderActivePositions(data);
         }
@@ -37,7 +36,7 @@ $(document).ready(function() {
     const offset = now.getTimezoneOffset(); 
     let localDate = new Date(now.getTime() - (offset*60*1000));
     
-    // Set History Date & Import Time
+    // Set Inputs
     $('#hist_date').val(localDate.toISOString().slice(0,10)); 
     $('#imp_time').val(localDate.toISOString().slice(0,16)); 
     
@@ -64,26 +63,25 @@ $(document).ready(function() {
     $('#sym').change(() => loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'));
     $('#exp').change(() => fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str'));
     $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
-    // Note: Main order form doesn't use the instant fetch for LTP display yet, typically Import Modal does.
 
-    // --- IMPORT MODAL BINDINGS (Fixed for No Delay) ---
+    // --- IMPORT MODAL BINDINGS (Instant Updates) ---
     
-    // 1. Symbol Change -> Load Expiries -> Force Update
+    // 1. Symbol Change -> Load Details -> Force Update
     $('#imp_sym').change(function() {
         loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts');
-        setTimeout(updateData, 500); // Small delay to allow expiry select to populate
+        setTimeout(updateData, 500); 
     }); 
 
     // 2. Expiry Change -> Load Strikes -> Force Update
     $('#imp_exp').change(function() {
         fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str');
-        setTimeout(updateData, 500); // Small delay to allow strike select to populate
+        setTimeout(updateData, 500);
     });
 
     // 3. Strike Change -> FETCH LTP IMMEDIATELY
     $('#imp_str').change(function() {
-        $('#imp_ltp_display').text("Fetching..."); // Visual Feedback
-        updateData(); // Force immediate backend call
+        $('#imp_ltp_display').text("Fetching...");
+        updateData(); // Force immediate call
     });
     
     // 4. Type Change -> Reload -> Force Update
@@ -97,7 +95,7 @@ $(document).ready(function() {
     $('#imp_sl_pts').on('input', calcImpFromPts);
     $('#imp_sl_price').on('input', calcImpFromPrice);
     
-    // "Full" Checkbox Listeners (Disable Quantity Input)
+    // "Full" Checkbox Listeners
     ['t1', 't2', 't3'].forEach(k => {
         $(`#imp_${k}_full`).change(function() {
             if($(this).is(':checked')) {
@@ -118,13 +116,13 @@ $(document).ready(function() {
     setInterval(updateClock, 1000); 
     updateClock();
     
-    // Background Sync Loop (Indices, Login Status)
-    // Runs every 3 seconds, BUT is also called manually for instant updates
+    // Background Sync Loop (Indices, Import LTP)
+    // Now runs every 1 second for Real-Time feel
     setInterval(updateData, REFRESH_INTERVAL); 
     updateData(); // Initial Call
 });
 
-// --- CORE DATA SYNC FUNCTION (Previously Missing) ---
+// --- CORE DATA SYNC FUNCTION (Restored) ---
 function updateData() {
     // Prepare Payload
     let payload = {
@@ -146,7 +144,7 @@ function updateData() {
         }
     }
 
-    // High-Performance Sync Call
+    // High-Speed Sync Call
     $.ajax({
         url: '/api/sync',
         method: 'POST',
@@ -182,10 +180,8 @@ function updateData() {
                 $('#imp_ltp_display').text(response.specific_ltp);
                 
                 // Auto-fill price input if empty or previously auto-filled
-                // Uses .data('auto') to prevent overwriting user manual entry
                 if ($('#imp_price').val() == "" || $('#imp_price').data('auto') == "true") {
                     $('#imp_price').val(response.specific_ltp).data('auto', "true");
-                    // Trigger calc logic to update SL/Targets based on new price
                     if(typeof calcImpFromPts === 'function') calcImpFromPts();
                 }
             }
@@ -214,9 +210,7 @@ function switchTab(id) {
     if(id==='closed') loadClosedTrades(); 
     updateDisplayValues(); 
     if(id === 'trade') $('.sticky-footer').show(); else $('.sticky-footer').hide();
-    
-    // Force update when switching to ensure data is fresh
-    updateData();
+    updateData(); // Force fresh data on tab switch
 }
 
 function setMode(el, mode) { 
@@ -273,7 +267,7 @@ function calcImpFromPrice() {
 function calculateImportTargets(entry, pts) {
     if(!entry || !pts) return;
     
-    // Default Ratios from Paper Settings
+    // Default Ratios
     let ratios = settings.modes.PAPER.ratios || [0.5, 1.0, 1.5];
     let t1_pts = pts * ratios[0];
     let t2_pts = pts * ratios[1];
@@ -394,8 +388,7 @@ function renderWatchlist() {
     if($('#remove_watch_sym').length) $('#remove_watch_sym').html(remOpts);
 }
 
-// Fallback if fetchLTP is called elsewhere in legacy code
+// Legacy fallback
 function fetchLTP() {
-    // This logic is now handled by updateData(), but we log for debugging
-    console.log("Legacy fetchLTP triggered - handled by updateData loop.");
+    console.log("Using UpdateData for LTP.");
 }

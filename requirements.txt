@@ -10,3 +10,4 @@ selenium
 webdriver-manager
 requests
 flask-socketio
+eventlet  <-- ADD THIS LINE

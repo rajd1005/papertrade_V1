@@ -3,7 +3,7 @@ var socket = null;
 
 $(document).ready(function() {
     // --- CONFIGURATION ---
-    const REFRESH_INTERVAL = 3000; // 3 Seconds for Background Sync (Indices/Login State)
+    const REFRESH_INTERVAL = 1000; // 1 Seconds for Background Sync (Indices/Login State)
     // ---------------------
 
     // --- WEBSOCKET INITIALIZATION ---

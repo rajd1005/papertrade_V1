@@ -420,7 +420,7 @@ def check_global_exit_conditions(kite, mode, mode_settings):
 def on_ticks(ws, ticks):
     """
     Triggered whenever a price update is received from Zerodha.
-    Handles Active Trades and Closed Trades (Virtual SL).
+    Handles Active Trades and Closed Trades (Virtual SL & Monitoring).
     """
     global kite_client, flask_app, socket_io_server
     
@@ -574,13 +574,13 @@ def on_ticks(ws, ticks):
                                 t['quantity'] -= qty_to_exit
                                 log_event(t, f"Target {i+1} Hit. Exited {qty_to_exit}")
                                 if t['mode'] == 'LIVE' and kite_client:
-                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite_client.ORDER_TYPE_MARKET, product=kite_client.PRODUCT_MIS)
+                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                                     except: pass
 
                 if exit_triggered:
                     if t['mode'] == "LIVE" and kite_client:
                         manage_broker_sl(kite_client, t, cancel_completely=True)
-                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite_client.ORDER_TYPE_MARKET, product=kite_client.PRODUCT_MIS)
+                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                     
                     final_price = t['sl'] if exit_reason=="SL_HIT" else (t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp)
@@ -594,17 +594,20 @@ def on_ticks(ws, ticks):
         
         if updated:
             save_trades(active_list)
-            # [NEW] Emit real-time update to Frontend via SocketIO
+            # Emit real-time update to Frontend for Active Trades
             if socket_io_server:
                 try:
                     socket_io_server.emit('trade_update', active_list)
                 except Exception as e:
                     print(f"Socket Emit Error: {e}")
 
-        # --- 2. PROCESS CLOSED TRADES (Virtual SL Tracking) ---
+        # --- 2. PROCESS CLOSED TRADES (Modified for Live LTP & Virtual SL) ---
         history_updated = False
+        live_closed_updates = []  # List to store live updates for frontend
+
         try:
             for t in todays_closed:
+                # Skip if already dead
                 if t.get('virtual_sl_hit', False): continue
                 
                 token = t.get('instrument_token')
@@ -612,6 +615,9 @@ def on_ticks(ws, ticks):
                 
                 ltp = tick_map[token]
                 t['current_ltp'] = ltp
+                
+                # Add to update list for Socket emission
+                live_closed_updates.append(t) 
                 
                 # Check Virtual SL (Entry vs SL direction)
                 is_dead = False
@@ -640,6 +646,13 @@ def on_ticks(ws, ticks):
         
         if history_updated:
             db.session.commit()
+
+        # Emit Real-Time Closed Trade Updates to Frontend
+        if socket_io_server and live_closed_updates:
+            try:
+                socket_io_server.emit('closed_trade_update', live_closed_updates)
+            except Exception as e:
+                print(f"Socket Emit Error (Closed): {e}")
 
 def on_connect(ws, response):
     print("✅ WebSocket Connected! Resubscribing...")

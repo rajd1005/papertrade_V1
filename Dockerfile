@@ -1,7 +1,7 @@
 # Use Python 3.9 as base
 FROM python:3.9
 
-# 1. Install Chrome and Dependencies
+# 1. Install Chrome and Dependencies (Modern GPG method)
 RUN apt-get update && apt-get install -y wget gnupg unzip && \
     wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | \
     gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
@@ -19,7 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy all project files
 COPY . .
 
-# 5. [FIXED] Start directly with Python
-# This triggers socketio.run() in main.py, which uses eventlet correctly.
-ENV PORT=8080
+# 5. [RAILWAY UPDATE] Start directly with Python
+# This ensures it uses the PORT env var provided by Railway
 CMD ["python", "main.py"]

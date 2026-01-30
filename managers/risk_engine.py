@@ -574,13 +574,13 @@ def on_ticks(ws, ticks):
                                 t['quantity'] -= qty_to_exit
                                 log_event(t, f"Target {i+1} Hit. Exited {qty_to_exit}")
                                 if t['mode'] == 'LIVE' and kite_client:
-                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite_client.ORDER_TYPE_MARKET, product=kite_client.PRODUCT_MIS)
                                     except: pass
 
                 if exit_triggered:
                     if t['mode'] == "LIVE" and kite_client:
                         manage_broker_sl(kite_client, t, cancel_completely=True)
-                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                     
                     final_price = t['sl'] if exit_reason=="SL_HIT" else (t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp)

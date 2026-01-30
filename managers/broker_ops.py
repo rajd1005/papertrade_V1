@@ -1,5 +1,5 @@
 from managers.common import log_event, get_time_str
-from managers.persistence import TRADE_LOCK, load_trades, save_trades, save_to_history_db
+from managers.persistence import load_trades, save_trades, save_to_history_db
 import smart_trader
 
 def place_order(kite, symbol, transaction_type, quantity, order_type="MARKET", product="MIS", price=0, trigger_price=0, exchange=None, tag="RD_ALGO"):
@@ -106,7 +106,8 @@ def panic_exit_all(kite):
     2. Places Market Sell orders for all open quantities.
     3. Moves all trades to history with status 'PANIC_EXIT'.
     """
-    with TRADE_LOCK:
+    # [REMOVED] with TRADE_LOCK:  <-- LOCK REMOVED
+    try:
         trades = load_trades()
         if not trades: 
             return True
@@ -135,10 +136,13 @@ def panic_exit_all(kite):
                     print(f"Panic Broker Fail {t['symbol']}: {e}")
             
             # Move to internal history
-            # Use current_ltp if available, else fallback to entry (neutral exit logic for panic if data missing)
+            # Use current_ltp if available, else fallback to entry
             exit_p = t.get('current_ltp', t['entry_price'])
             move_to_history(t, "PANIC_EXIT", exit_p)
         
         # Clear active trades list
         save_trades([])
         return True
+    except Exception as e:
+        print(f"Panic Exit Error: {e}")
+        return False

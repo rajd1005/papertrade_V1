@@ -414,9 +414,12 @@ async function runBatchSimulation() {
 }
 
 // --- Real-Time Listener for Closed Trades ---
-// Wrapped in document.ready to ensure 'socket' from main.js is available
+// Wrapped in document.ready to ensure DOM elements exist
 $(document).ready(function() {
+    // Check if 'socket' is available from main.js
     if (typeof socket !== 'undefined') {
+        console.log("✅ History.js: Listening for Closed Trade Updates...");
+        
         socket.on('closed_trade_update', function(updates) {
             updates.forEach(t => {
                 // 1. Update Global Cache
@@ -438,6 +441,6 @@ $(document).ready(function() {
             });
         });
     } else {
-        console.warn("Socket.IO not initialized when history.js loaded.");
+        console.warn("⚠️ History.js: 'socket' is undefined. Make sure main.js is loaded BEFORE history.js in dashboard.html");
     }
 });

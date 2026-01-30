@@ -1,4 +1,3 @@
-# run_demo.py
 import os
 import kiteconnect
 
@@ -6,9 +5,9 @@ import kiteconnect
 from mock_broker import MockKiteConnect, MOCK_MARKET_DATA, SIM_CONFIG
 kiteconnect.KiteConnect = MockKiteConnect
 
-# 2. Import App
+# 2. Import App and SocketIO
 os.environ["FLASK_ENV"] = "development"
-from main import app
+from main import app, socketio # <--- IMPORT SOCKETIO
 
 # 3. Inject Demo Routes
 from flask import request, jsonify, render_template
@@ -52,4 +51,6 @@ def demo_get_state():
     return jsonify({"prices": MOCK_MARKET_DATA, "config": SIM_CONFIG})
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    print("🚀 STARTING DEMO MODE WITH WEBSOCKETS...")
+    # UPDATED: Use socketio.run instead of app.run
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, use_reloader=False)

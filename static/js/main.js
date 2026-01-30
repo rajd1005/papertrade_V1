@@ -1,6 +1,6 @@
 $(document).ready(function() {
     // --- CONFIGURATION ---
-    const REFRESH_INTERVAL = 3000; // 3 Seconds Refresh for Stability
+    const REFRESH_INTERVAL = 1000; // 3 Seconds Refresh for Stability
     // ---------------------
 
     renderWatchlist();

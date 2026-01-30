@@ -71,7 +71,16 @@ $(document).ready(function() {
     $('#imp_exp').change(() => fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str'));
     
     // 3. Bind Strike Change to fetch LTP (New Feature)
-    $('#imp_str').change(fetchLTP);
+    $('#imp_str').change(function() {
+    fetchLTP();      // Update the UI/Logic placeholders
+    updateData();    // <--- FORCE IMMEDIATE FETCH from Backend
+});
+
+// Also apply to Symbol and Expiry if needed:
+$('#imp_sym, #imp_exp, input[name="imp_type"]').change(function() {
+    // ... existing logic ...
+    setTimeout(updateData, 100); // Small delay to allow UI to settle, then fetch
+});
 
     $('input[name="imp_type"]').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts'));
     

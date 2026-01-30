@@ -19,6 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy all project files
 COPY . .
 
-# 5. [UPDATED] Start command changed from Gunicorn to Python
-# This ensures socketio.run() in main.py is executed
-CMD ["python", "main.py"]
+# 5. [CRITICAL UPDATE] Use 'eventlet' worker for WebSockets
+# We use 1 worker (-w 1) because eventlet handles concurrency via green threads.
+CMD ["gunicorn", "-k", "eventlet", "-w", "1", "-b", "0.0.0.0:8080", "main:app"]

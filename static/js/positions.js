@@ -109,12 +109,12 @@ function updateData() {
     });
 }
 
-// 2. Render Active Positions
 function renderActivePositions(trades) {
-    activeTradesList = trades; // Update global list for Edit Modal
+    activeTradesList = trades; 
     
-    let sumLive = 0, sumPaper = 0;
-    let capLive = 0, capPaper = 0; 
+    // 1. Initialize variables for Replay
+    let sumLive = 0, sumPaper = 0, sumReplay = 0;
+    let capLive = 0, capPaper = 0, capReplay = 0; 
     let filterType = $('#active_filter').val();
 
     trades.forEach(t => {
@@ -126,15 +126,32 @@ function renderActivePositions(trades) {
         let invested = entry * qty; 
         
         let cat = getTradeCategory(t);
-        if(cat === 'LIVE') { sumLive += pnl; capLive += invested; }
-        else if(cat === 'PAPER' && !t.is_replay) { sumPaper += pnl; capPaper += invested; }
+
+        // 2. Separate logic for Replay vs Live vs Paper
+        if(t.is_replay) { 
+            sumReplay += pnl; 
+            capReplay += invested; 
+        }
+        else if(cat === 'LIVE') { 
+            sumLive += pnl; 
+            capLive += invested; 
+        }
+        else if(cat === 'PAPER') { 
+            sumPaper += pnl; 
+            capPaper += invested; 
+        }
     });
     
+    // 3. Update DOM Elements
     $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
     $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
     
+    // New Replay Update
+    $('#sum_replay').text("₹ " + sumReplay.toFixed(2)).attr('class', sumReplay >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
+    
     $('#cap_live').text("₹ " + (capLive/100000).toFixed(2) + " L");
     $('#cap_paper').text("₹ " + (capPaper/100000).toFixed(2) + " L");
+    $('#cap_replay').text("₹ " + (capReplay/100000).toFixed(2) + " L");
 
     let filtered = trades.filter(t => filterType === 'ALL' || getTradeCategory(t) === filterType);
     

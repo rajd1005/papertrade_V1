@@ -244,6 +244,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             
             record = {
                 "id": int(time.time()), 
+                "instrument_token": token,
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
                 "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 

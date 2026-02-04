@@ -45,8 +45,10 @@ def run_auto_login_process():
     
     # Load dynamic config
     auth = config_manager.get_auth_config()
+    user_id = auth.get("ZERODHA_USER_ID")
+    totp_secret = auth.get("TOTP_SECRET")
     
-    if not auth.get("ZERODHA_USER_ID") or not auth.get("TOTP_SECRET"):
+    if not user_id or not totp_secret:
         login_state = "FAILED"
         login_error_msg = "Missing Credentials in Config"
         return

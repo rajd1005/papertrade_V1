@@ -1,5 +1,7 @@
 import json
 from database import db, ActiveTrade, TradeHistory, RiskState, TelegramMessage
+from datetime import datetime, timedelta
+import time
 
 # --- Risk State Persistence ---
 def get_risk_state(mode):
@@ -89,3 +91,30 @@ def save_to_history_db(trade_data):
     except Exception as e:
         print(f"Save History DB Error: {e}")
         db.session.rollback()
+
+def cleanup_old_data(days=7):
+    """
+    Deletes trade history and associated telegram messages older than X days.
+    """
+    try:
+        # Calculate the threshold timestamp (IDs in this DB are timestamp-based)
+        # 86400 seconds = 1 day
+        threshold_id = int((time.time() - (days * 86400)) * 1000) 
+        
+        # 1. Delete associated Telegram messages first (Foreign Key/Reference cleanup)
+        # We fetch trade IDs that are about to be deleted
+        old_trades = TradeHistory.query.filter(TradeHistory.id < threshold_id).all()
+        for t in old_trades:
+            TelegramMessage.query.filter_by(trade_id=str(t.id)).delete()
+        
+        # 2. Delete from TradeHistory
+        deleted_count = TradeHistory.query.filter(TradeHistory.id < threshold_id).delete()
+        
+        db.session.commit()
+        if deleted_count > 0:
+            print(f"🧹 Database Cleanup: Removed {deleted_count} records older than {days} days.")
+        return True
+    except Exception as e:
+        print(f"❌ Cleanup Error: {e}")
+        db.session.rollback()
+        return False

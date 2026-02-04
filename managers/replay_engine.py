@@ -262,11 +262,17 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             }
             trades = load_trades(); trades.append(record); save_trades(trades)
             
-            # OPTIONAL: Trigger subscription update immediately
+            # FORCE Subscription Update
             try:
-                from managers import risk_engine
-                risk_engine.update_subscriptions()
-            except: pass
+                # Import inside function to avoid circular dependency issues
+                import managers.risk_engine as re
+                if re.kws and re.kws.is_connected():
+                    re.update_subscriptions()
+                    print(f"🔄 Triggered Subscription Update for {symbol}")
+                else:
+                    print("⚠️ Ticker not connected yet, subscription queued.")
+            except Exception as e:
+                print(f"❌ Failed to update subscriptions: {e}")
 
             return { "status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}.", "notification_queue": notification_queue, "trade_ref": record }
             

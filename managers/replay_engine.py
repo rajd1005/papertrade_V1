@@ -262,12 +262,13 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             }
             trades = load_trades(); trades.append(record); save_trades(trades)
             
-            return {
-                "status": "success", 
-                "message": f"Simulation Complete. Trade Still Active as {final_status}.",
-                "notification_queue": notification_queue,
-                "trade_ref": record
-            }
+            # OPTIONAL: Trigger subscription update immediately
+            try:
+                from managers import risk_engine
+                risk_engine.update_subscriptions()
+            except: pass
+
+            return { "status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}.", "notification_queue": notification_queue, "trade_ref": record }
             
         else:
             last_time = logs[-1].split(']')[0].replace('[', '')
@@ -276,6 +277,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
 
             record = {
                 "id": int(time.time()), 
+                "instrument_token": token,
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
                 "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 

@@ -446,6 +446,7 @@ def on_ticks(ws, ticks):
         # --- 1. PROCESS ACTIVE TRADES ---
         for t in active_trades:
             token = t.get('instrument_token')
+            if token: token = int(token) # Force INT to match tick_map keys
             
             # If no update for this trade, keep as is
             if not token or token not in tick_map:
@@ -607,19 +608,19 @@ def on_ticks(ws, ticks):
 
         try:
             for t in todays_closed:
-                # [CHANGED] Removed the check that skipped updates for 'dead' trades
-                # if t.get('virtual_sl_hit', False): continue 
-                
                 token = t.get('instrument_token')
-                if not token or token not in tick_map: continue
+                if not token: continue
+                token = int(token) # Force INT casting
+                
+                if token not in tick_map: continue
                 
                 ltp = tick_map[token]
                 t['current_ltp'] = ltp
                 
-                # [CHANGED] Always add to update list so Frontend gets the live price
+                # Always add to update list so Frontend gets the live price
                 live_closed_updates.append(t) 
                 
-                # [CHANGED] Only run the "Logic" (Virtual SL / High Made) if not already dead
+                # Only run the "Logic" (Virtual SL / High Made) if not already dead
                 if not t.get('virtual_sl_hit', False):
                     
                     # Check Virtual SL (Entry vs SL direction)

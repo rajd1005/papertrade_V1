@@ -3,38 +3,30 @@ function loadSettings() {
         if(data) {
             settings = data;
             
-            // --- Exchanges ---
+            // --- Existing Exchanges Logic ---
             if(settings.exchanges) {
                 $('input[name="exch_select"]').prop('checked', false);
                 settings.exchanges.forEach(e => $(`#exch_${e}`).prop('checked', true));
             }
 
-            // --- NEW: 1st Trade Logic Toggle ---
             $('#first_trade_toggle').prop('checked', settings.first_trade_logic || false);
             
-            // --- DETERMINE EFFECTIVE DEFAULTS (Logic Injection) ---
-            // 1. Get Stored User Preferences
             let storedMode = settings.default_trade_mode || 'PAPER';
             let storedChannel = settings.default_broadcast_channel || 'vip'; 
 
-            // 2. Define Variables for Dashboard Application
             let applyMode = storedMode;
             let applyChannel = storedChannel;
 
-            // 3. CHECK 1st TRADE LOGIC
             if (settings.first_trade_logic && settings.is_first_trade) {
-                console.log("ℹ️ First Trade of Day Detected: Enforcing Shadow & Free Only");
                 applyMode = 'SHADOW';
                 applyChannel = 'free'; 
             }
 
-            // --- UPDATE UI: SETTINGS MODAL ---
             $('#def_trade_mode').val(storedMode);
             $('#def_vip').prop('checked', storedChannel === 'vip');
             $('#def_free').prop('checked', storedChannel === 'free');
             $('#def_z2h').prop('checked', storedChannel === 'z2h');
 
-            // --- UPDATE UI: DASHBOARD PANEL ---
             setTimeout(() => {
                 let btn = $(`.btn[onclick*="setMode"][onclick*="'${applyMode}'"]`);
                 if(btn.length && !btn.hasClass('active')) {
@@ -49,39 +41,29 @@ function loadSettings() {
 
             renderWatchlist();
 
-            // --- Modes Loop (PAPER / LIVE) ---
             ['PAPER', 'LIVE'].forEach(m => {
                 let k = m.toLowerCase();
                 let s = settings.modes[m];
-                
                 if(s) {
                     $(`#${k}_qty_mult`).val(s.qty_mult);
-                    
-                    // Ratios
                     $(`#${k}_r1`).val(s.ratios[0]);
                     $(`#${k}_r2`).val(s.ratios[1]);
                     $(`#${k}_r3`).val(s.ratios[2]);
-                    
-                    // Trailing SL & Defaults
                     $(`#${k}_def_trail`).val(s.trailing_sl || 0);
                     $(`#${k}_order_type`).val(s.order_type || 'MARKET');
                     $(`#${k}_trail_limit`).val(s.sl_to_entry || 0);
                     $(`#${k}_exit_mult`).val(s.exit_multiplier || 1);
-                    
-                    // Risk Settings
                     $(`#${k}_time`).val(s.universal_exit_time || "15:25");
                     $(`#${k}_max_loss`).val(s.max_loss || 0);
                     $(`#${k}_pl_start`).val(s.profit_lock || 0);
                     $(`#${k}_pl_min`).val(s.profit_min || 0);
                     $(`#${k}_pl_trail`).val(s.profit_trail || 0);
 
-                    // Target Config
                     let tgts = s.targets || [
                         {active: true, lots: 0, full: false, trail_to_entry: false},
                         {active: true, lots: 0, full: false, trail_to_entry: false},
                         {active: true, lots: 1000, full: true, trail_to_entry: false}
                     ];
-                    
                     ['1', '2', '3'].forEach((i, idx) => {
                          let t = tgts[idx];
                          $(`#${k}_a${i}`).prop('checked', t.active);
@@ -89,30 +71,21 @@ function loadSettings() {
                          $(`#${k}_f${i}`).prop('checked', t.full);
                          $(`#${k}_c${i}`).prop('checked', t.trail_to_entry || false);
                     });
-
                     renderSLTable(m);
                 }
             });
             
-            // --- CRITICAL FIX: Alias SHADOW to LIVE ---
-            if(settings.modes.LIVE) {
-                settings.modes.SHADOW = settings.modes.LIVE;
-            }
-            // ------------------------------------------
+            if(settings.modes.LIVE) { settings.modes.SHADOW = settings.modes.LIVE; }
 
-            // --- LOAD TELEGRAM SETTINGS ---
             if(settings.telegram) {
                 $('#tg_bot_token').val(settings.telegram.bot_token || '');
                 $('#tg_enable').prop('checked', settings.telegram.enable_notifications || false);
-                
                 $('#tg_channel_id').val(settings.telegram.channel_id || '');
                 $('#tg_system_channel_id').val(settings.telegram.system_channel_id || ''); 
-                
                 $('#tg_vip_channel_id').val(settings.telegram.vip_channel_id || '');
                 $('#tg_free_channel_id').val(settings.telegram.free_channel_id || '');
                 $('#tg_z2h_channel_id').val(settings.telegram.z2h_channel_id || '');
                 $('#tg_z2h_channel_name').val(settings.telegram.z2h_channel_name || 'Zero To Hero');
-
                 let toggles = settings.telegram.event_toggles || {};
                 $('#tg_evt_new').prop('checked', toggles.NEW_TRADE !== false);
                 $('#tg_evt_active').prop('checked', toggles.ACTIVE !== false);
@@ -120,7 +93,6 @@ function loadSettings() {
                 $('#tg_evt_sl').prop('checked', toggles.SL_HIT !== false);
                 $('#tg_evt_tgt').prop('checked', toggles.TARGET_HIT !== false);
                 $('#tg_evt_high').prop('checked', toggles.HIGH_MADE !== false);
-
                 let tpls = settings.telegram.templates || {};
                 $('#tpl_new').val(tpls.NEW_TRADE || "");
                 $('#tpl_active').val(tpls.ACTIVE || "");
@@ -131,12 +103,44 @@ function loadSettings() {
                 $('#tpl_free_header').val(tpls.FREE_HEADER || ""); 
             }
 
+            // --- NEW: Dynamic Auth Config Loader ---
+            $.get('/api/config/auth', function(res) {
+                if(res && res.auth) {
+                    $('#cfg_api_key').val(res.auth.API_KEY || '');
+                    $('#cfg_api_secret').val(res.auth.API_SECRET || '');
+                    $('#cfg_user_id').val(res.auth.ZERODHA_USER_ID || '');
+                    $('#cfg_password').val(res.auth.ZERODHA_PASSWORD || '');
+                    $('#cfg_totp_secret').val(res.auth.TOTP_SECRET || '');
+                    $('#display_callback_url').text(res.callback_url || 'N/A');
+                }
+            });
+
             if (typeof updateDisplayValues === "function") updateDisplayValues(); 
         }
     });
 }
 
 function saveSettings() {
+    // --- NEW: Save Auth Credentials First ---
+    let authData = {
+        API_KEY: $('#cfg_api_key').val().trim(),
+        API_SECRET: $('#cfg_api_secret').val().trim(),
+        ZERODHA_USER_ID: $('#cfg_user_id').val().trim(),
+        ZERODHA_PASSWORD: $('#cfg_password').val().trim(),
+        TOTP_SECRET: $('#cfg_totp_secret').val().trim()
+    };
+
+    $.ajax({
+        type: "POST",
+        url: '/api/config/auth',
+        data: JSON.stringify(authData),
+        contentType: "application/json",
+        success: function(response) {
+            console.log("Auth config updated successfully");
+        }
+    });
+
+    // --- Standard Settings Save Logic ---
     let selectedExchanges = [];
     $('input[name="exch_select"]:checked').each(function() { selectedExchanges.push($(this).val()); });
     settings.exchanges = selectedExchanges;
@@ -150,25 +154,20 @@ function saveSettings() {
     else if($('#def_z2h').is(':checked')) def_channel = 'z2h';
     settings.default_broadcast_channel = def_channel;
 
-    // Only save PAPER and LIVE (Shadow uses Live)
     ['PAPER', 'LIVE'].forEach(m => {
         let k = m.toLowerCase();
         let s = settings.modes[m];
-        
         s.qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
         s.ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
-        s.trailing_sl = parseFloat($(`#${k}_def_trail`).val()) || 0;
-        
+        s.trailing_sl = float($(`#${k}_def_trail`).val()) || 0;
         s.order_type = $(`#${k}_order_type`).val();
         s.sl_to_entry = parseInt($(`#${k}_trail_limit`).val()) || 0;
         s.exit_multiplier = parseInt($(`#${k}_exit_mult`).val()) || 1;
-        
         s.universal_exit_time = $(`#${k}_time`).val();
         s.max_loss = parseFloat($(`#${k}_max_loss`).val()) || 0;
         s.profit_lock = parseFloat($(`#${k}_pl_start`).val()) || 0;
         s.profit_min = parseFloat($(`#${k}_pl_min`).val()) || 0;
         s.profit_trail = parseFloat($(`#${k}_pl_trail`).val()) || 0;
-        
         s.targets = [];
         ['1', '2', '3'].forEach(i => {
             s.targets.push({
@@ -179,6 +178,46 @@ function saveSettings() {
             });
         });
     });
+
+    settings.telegram = {
+        bot_token: $('#tg_bot_token').val().trim(),
+        enable_notifications: $('#tg_enable').is(':checked'),
+        channel_id: $('#tg_channel_id').val().trim(),
+        system_channel_id: $('#tg_system_channel_id').val().trim(),
+        vip_channel_id: $('#tg_vip_channel_id').val().trim(),
+        free_channel_id: $('#tg_free_channel_id').val().trim(),
+        z2h_channel_id: $('#tg_z2h_channel_id').val().trim(),
+        z2h_channel_name: $('#tg_z2h_channel_name').val().trim() || 'Zero To Hero',
+        event_toggles: {
+            NEW_TRADE: $('#tg_evt_new').is(':checked'),
+            ACTIVE: $('#tg_evt_active').is(':checked'),
+            UPDATE: $('#tg_evt_update').is(':checked'),
+            SL_HIT: $('#tg_evt_sl').is(':checked'),
+            TARGET_HIT: $('#tg_evt_tgt').is(':checked'),
+            HIGH_MADE: $('#tg_evt_high').is(':checked')
+        },
+        templates: {
+            NEW_TRADE: $('#tpl_new').val(),
+            ACTIVE: $('#tpl_active').val(),
+            UPDATE: $('#tpl_update').val(),
+            SL_HIT: $('#tpl_sl').val(),
+            TARGET_HIT: $('#tpl_tgt').val(),
+            HIGH_MADE: $('#tpl_high').val(),
+            FREE_HEADER: $('#tpl_free_header').val()
+        }
+    };
+
+    $.ajax({ 
+        type: "POST", 
+        url: '/api/settings/save', 
+        data: JSON.stringify(settings), 
+        contentType: "application/json", 
+        success: () => { 
+            $('#settingsModal').modal('hide'); 
+            loadSettings(); 
+        } 
+    });
+}
 
     settings.telegram = {
         bot_token: $('#tg_bot_token').val().trim(),

@@ -207,6 +207,7 @@ function saveSettings() {
         }
     };
 
+// 3. Final Save Request
     $.ajax({ 
         type: "POST", 
         url: '/api/settings/save', 
@@ -215,7 +216,11 @@ function saveSettings() {
         success: () => { 
             $('#settingsModal').modal('hide'); 
             loadSettings(); 
-        } 
+        },
+        error: (err) => {
+            alert("Error saving settings. Check console.");
+            console.error(err);
+        }
     });
 }
 

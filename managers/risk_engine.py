@@ -17,6 +17,9 @@ kite_client = None  # Reference to KiteConnect instance for placing orders
 flask_app = None    # Reference to Flask App for DB Context
 socket_io_server = None # Reference to SocketIO Server for emitting events
 
+# Global timer for periodic subscription checks (Self-Healing)
+last_sub_check = 0
+
 # --- REPORTING FUNCTIONS ---
 
 def send_eod_report(mode):
@@ -422,9 +425,15 @@ def on_ticks(ws, ticks):
     Triggered whenever a price update is received from Zerodha.
     Handles Active Trades and Closed Trades (Virtual SL & Monitoring).
     """
-    global kite_client, flask_app, socket_io_server
+    global kite_client, flask_app, socket_io_server, last_sub_check
     
     if not flask_app: return
+
+    # --- 0. AUTO-RESUBSCRIBE CHECK (Every 5 Seconds) ---
+    # This ensures newly closed trades (like Replay or Live SL Hit) are watched.
+    if time.time() - last_sub_check > 5:
+        subscribe_active_trades(ws)
+        last_sub_check = time.time()
 
     # Use App Context for DB operations inside this thread
     with flask_app.app_context():
@@ -575,13 +584,13 @@ def on_ticks(ws, ticks):
                                 t['quantity'] -= qty_to_exit
                                 log_event(t, f"Target {i+1} Hit. Exited {qty_to_exit}")
                                 if t['mode'] == 'LIVE' and kite_client:
-                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite_client.ORDER_TYPE_MARKET, product=kite_client.PRODUCT_MIS)
+                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                                     except: pass
 
                 if exit_triggered:
                     if t['mode'] == "LIVE" and kite_client:
                         manage_broker_sl(kite_client, t, cancel_completely=True)
-                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                     
                     final_price = t['sl'] if exit_reason=="SL_HIT" else (t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp)
@@ -683,7 +692,7 @@ def subscribe_active_trades(ws):
         if all_tokens:
             ws.subscribe(all_tokens)
             ws.set_mode(ws.MODE_FULL, all_tokens)
-            print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).")
+            # print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).") # Reduced spam
 
 def start_ticker(api_key, access_token, kite_inst, app_inst, socket_inst=None):
     """

@@ -11,7 +11,19 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import config
+from managers import config_manager
 
+def perform_auto_login(kite_instance):
+    # Fetch dynamic credentials from DB/Settings
+    auth = config_manager.get_auth_config()
+    
+    user_id = auth.get("ZERODHA_USER_ID")
+    password = auth.get("ZERODHA_PASSWORD")
+    totp_secret = auth.get("TOTP_SECRET")
+
+    if not user_id or not totp_secret:
+        return None, "Dynamic Credentials Missing"
+        
 def perform_auto_login(kite_instance):
     print("🔄 Starting Auto-Login Sequence...")
     

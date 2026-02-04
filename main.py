@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, redirect, flash, jsonify, url
 from kiteconnect import KiteConnect
 from flask_socketio import SocketIO
 import config
+from managers import config_manager
 
 # --- REFACTORED IMPORTS ---
 from managers import persistence, trade_manager, risk_engine, replay_engine, common, broker_ops
@@ -892,3 +893,18 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
 
 if __name__ == "__main__":
     socketio.run(app, host='0.0.0.0', port=config.PORT, debug=False, allow_unsafe_werkzeug=True)
+    
+@app.route('/api/config/auth', methods=['GET', 'POST'])
+def handle_auth_config():
+    if request.method == 'GET':
+        # Provide current config and the dynamic callback URL
+        auth_data = config_manager.get_auth_config()
+        callback_url = config_manager.get_dynamic_callback_url(request.url)
+        return jsonify({"auth": auth_data, "callback_url": callback_url})
+    
+    if request.method == 'POST':
+        # Save new credentials sent from front-end
+        if config_manager.update_auth_config(request.json):
+            flash("🔐 Authentication credentials updated. Please restart/reset connection.")
+            return jsonify({"status": "success"})
+        return jsonify({"status": "error", "message": "Failed to save config"})

@@ -183,6 +183,7 @@ def background_monitor():
                             
                             bot_active = False 
                             ticker_started = False # Reset ticker state
+                            login_state = "IDLE" # Force retry immediately
                         else:
                             print(f"⚠️ Risk Loop Warning: {err}")
 
@@ -319,6 +320,8 @@ def api_settings_save():
 # --- FEATURE: AUTH CONFIG ROUTES ---
 @app.route('/api/config/auth', methods=['GET', 'POST'])
 def handle_auth_config():
+    global login_state, bot_active # Access globals to restart login process
+    
     if request.method == 'GET':
         # Provide current config and the dynamic callback URL
         auth_data = config_manager.get_auth_config()
@@ -328,7 +331,13 @@ def handle_auth_config():
     if request.method == 'POST':
         # Save new credentials sent from front-end
         if config_manager.update_auth_config(request.json):
-            flash("🔐 Authentication credentials updated. Please restart/reset connection.")
+            # --- CRITICAL FIX: Reset Login State to Trigger Retry ---
+            if not bot_active:
+                print("🔐 Auth Config Updated: Resetting Login State to IDLE.")
+                login_state = "IDLE"
+            # --------------------------------------------------------
+            
+            flash("🔐 Credentials updated. Auto-login restarting...")
             return jsonify({"status": "success"})
         return jsonify({"status": "error", "message": "Failed to save config"})
 # -----------------------------------

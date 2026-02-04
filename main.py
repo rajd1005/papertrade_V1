@@ -43,7 +43,10 @@ ticker_started = False  # [NEW] Track WebSocket State
 def run_auto_login_process():
     global bot_active, login_state, login_error_msg, ticker_started
     
-    if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
+    # Load dynamic config
+    auth = config_manager.get_auth_config()
+    
+    if not auth.get("ZERODHA_USER_ID") or not auth.get("TOTP_SECRET"):
         login_state = "FAILED"
         login_error_msg = "Missing Credentials in Config"
         return

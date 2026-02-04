@@ -515,6 +515,35 @@
                         <button class="btn btn-outline-primary w-100" onclick="testTelegram()">📩 Send Test Message (To Main)</button>
                     </div>
 
+                    <div class="tab-pane fade" id="tab-auth">
+                        <h6 class="text-danger fw-bold">Zerodha API Credentials</h6>
+                        <div class="mb-2">
+                            <label class="pos-grid-label">API Key</label>
+                            <input type="text" id="cfg_api_key" class="form-control form-control-sm">
+                        </div>
+                        <div class="mb-2">
+                            <label class="pos-grid-label">API Secret</label>
+                            <input type="password" id="cfg_api_secret" class="form-control form-control-sm">
+                        </div>
+                        <hr class="my-2">
+                        <h6 class="text-primary fw-bold">Auto-Login Credentials</h6>
+                        <div class="mb-2">
+                            <label class="pos-grid-label">Client ID (User ID)</label>
+                            <input type="text" id="cfg_user_id" class="form-control form-control-sm">
+                        </div>
+                        <div class="mb-2">
+                            <label class="pos-grid-label">Password</label>
+                            <input type="password" id="cfg_password" class="form-control form-control-sm">
+                        </div>
+                        <div class="mb-3">
+                            <label class="pos-grid-label">TOTP Secret</label>
+                            <input type="text" id="cfg_totp_secret" class="form-control form-control-sm">
+                        </div>
+                        <div class="alert alert-info py-2">
+                            <small class="fw-bold">Dynamic Callback URL:</small><br>
+                            <code id="display_callback_url" style="font-size: 0.75rem;">Loading...</code>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div>

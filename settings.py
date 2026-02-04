@@ -19,18 +19,20 @@ def get_defaults():
     }
     
     return {
-        "auth_credentials": { # ADD THIS KEY
+        # --- NEW: Auth Credentials Container ---
+        "auth_credentials": {
             "ZERODHA_USER_ID": "",
             "ZERODHA_PASSWORD": "",
             "API_KEY": "",
             "API_SECRET": "",
             "TOTP_SECRET": ""
         },
+        # ---------------------------------------
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
         "watchlist": [],
-        # --- NEW: Default Broadcast Channels (Default: All Checked) ---
+        # --- Default Broadcast Channels (Default: All Checked) ---
         "broadcast_defaults": ["vip", "free", "z2h"], 
-        # --------------------------------------------------------------
+        # ---------------------------------------------------------
         "modes": {
             "LIVE": default_mode_settings.copy(),
             "PAPER": default_mode_settings.copy()
@@ -40,7 +42,7 @@ def get_defaults():
             "enable_history_check": True,
             "default_interval": "minute"
         },
-        # --- NEW TELEGRAM CONFIG (UPDATED) ---
+        # --- TELEGRAM CONFIG ---
         "telegram": {
             "bot_token": "",
             "enable_notifications": False,
@@ -101,6 +103,15 @@ def load_settings():
                 for k, v in defaults["telegram"].items():
                     if k not in saved["telegram"]:
                         saved["telegram"][k] = v
+            
+            # --- MERGE NEW AUTH CREDENTIALS ---
+            if "auth_credentials" not in saved:
+                saved["auth_credentials"] = defaults["auth_credentials"]
+            else:
+                # Ensure all sub-keys exist (user_id, api_key, etc.)
+                for k, v in defaults["auth_credentials"].items():
+                    if k not in saved["auth_credentials"]:
+                        saved["auth_credentials"][k] = v
 
             return saved
     except Exception as e: print(f"Error loading settings: {e}")

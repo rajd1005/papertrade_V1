@@ -294,12 +294,12 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             }
             move_to_history(record, exit_reason, final_exit_price)
             
-            return {
-                "status": "success", 
-                "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}",
-                "notification_queue": notification_queue,
-                "trade_ref": record
-            }
+            try:
+                from managers import risk_engine
+                risk_engine.update_subscriptions()
+            except: pass
+            
+            return { "status": "success", "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}", "notification_queue": notification_queue, "trade_ref": record }
 
     except Exception as e: 
         return {"status": "error", "message": str(e)}

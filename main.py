@@ -105,6 +105,7 @@ def run_auto_login_process():
 
 def background_monitor():
     global bot_active, login_state, ticker_started
+    last_cleanup_time = 0  # Track when the last cleanup ran
     
     # [FIXED] Wrapped Startup Notification in App Context
     with app.app_context():
@@ -119,6 +120,11 @@ def background_monitor():
     while True:
         with app.app_context():
             try:
+                # --- NEW: AUTO-DELETE OLD DATA (Runs once every 24 hours) ---
+                current_time = time.time()
+                if current_time - last_cleanup_time > 86400: # 86400s = 24h
+                    persistence.cleanup_old_data(days=7)
+                    last_cleanup_time = current_time
                 # 1. Active Bot Check
                 if bot_active:
                     try:

@@ -148,7 +148,7 @@ function loadSettings() {
 }
 
 function saveSettings() {
-    // --- 1. Prepare Auth Credentials Data ---
+    // 1. Prepare Auth Credentials Data
     let authData = {
         API_KEY: $('#cfg_api_key').val().trim(),
         API_SECRET: $('#cfg_api_secret').val().trim(),
@@ -157,7 +157,7 @@ function saveSettings() {
         TOTP_SECRET: $('#cfg_totp_secret').val().trim()
     };
 
-    // --- 2. Prepare Standard Settings Data ---
+    // 2. Prepare Standard Settings Data
     let selectedExchanges = [];
     $('input[name="exch_select"]:checked').each(function() { selectedExchanges.push($(this).val()); });
     settings.exchanges = selectedExchanges;
@@ -229,41 +229,44 @@ function saveSettings() {
         }
     };
 
-    // --- 3. CHAINED SAVE EXECUTION (Auth -> Settings -> Reload) ---
+    // 3. IMPORTANT: Update global settings object with Auth Data BEFORE saving general settings
+    // This prevents the 'general settings save' from sending empty auth data and overwriting DB
+    if(typeof settings !== 'undefined') {
+        settings.auth_credentials = authData;
+    }
+
+    // 4. CHAINED EXECUTION: Save Auth first, THEN General Settings
     $.ajax({
         type: "POST",
         url: '/api/config/auth',
         data: JSON.stringify(authData),
         contentType: "application/json",
-        success: function(authResponse) {
-            console.log("✅ Auth Config Saved");
+        success: function(response) {
+            console.log("✅ Auth config updated");
             
-            // If Auth Save successful, save the rest
+            // Only proceed to save general settings if Auth save was successful
             $.ajax({ 
                 type: "POST", 
                 url: '/api/settings/save', 
                 data: JSON.stringify(settings), 
                 contentType: "application/json", 
-                success: function(settingsResponse) { 
-                    console.log("✅ General Settings Saved");
+                success: () => { 
                     $('#settingsModal').modal('hide'); 
                     
-                    // CHECK: If system is OFFLINE, force a reload to trigger Auto-Login with new Creds
+                    // CRITICAL FIX: Reload if system is Offline to trigger Auto-Login
                     let pageText = document.body.innerText;
                     if (pageText.includes("System Offline") || pageText.includes("Login Failed")) {
-                        alert("Settings Saved! Page will reload to retry login...");
+                        alert("Settings Saved! Page will reload to retry Auto-Login.");
                         window.location.reload();
                     } else {
                         loadSettings(); 
                     }
                 },
-                error: function(err) {
-                    alert("❌ Error saving General Settings: " + JSON.stringify(err));
-                }
+                error: (err) => { alert("Error saving General Settings: " + JSON.stringify(err)); }
             });
         },
         error: function(xhr) {
-            alert("❌ Error saving Auth Credentials. Please check API Key/Secret/User ID.");
+            alert("Error saving Auth Credentials. Please check input fields.");
         }
     });
 }

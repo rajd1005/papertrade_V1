@@ -123,7 +123,26 @@ def save_settings_file(data):
         if not setting:
             setting = AppSetting(data=json.dumps(data))
             db.session.add(setting)
-        else: setting.data = json.dumps(data)
+        else:
+            # --- DEFENSIVE SAVE LOGIC START ---
+            # Prevents overwriting 'auth_credentials' if the incoming 'data' 
+            # (e.g. from general settings save) is missing them.
+            try:
+                existing_data = json.loads(setting.data)
+                if 'auth_credentials' in existing_data:
+                    # Check if incoming data has empty or missing auth
+                    incoming_auth = data.get('auth_credentials', {})
+                    user_id = incoming_auth.get('ZERODHA_USER_ID')
+                    
+                    # If incoming User ID is missing/empty, RESTORE from DB
+                    if not user_id:
+                        data['auth_credentials'] = existing_data['auth_credentials']
+            except Exception as ex:
+                print(f"Warning: Defensive Save Check Failed: {ex}")
+            # --- DEFENSIVE SAVE LOGIC END ---
+
+            setting.data = json.dumps(data)
+            
         db.session.commit()
         return True
     except Exception as e:

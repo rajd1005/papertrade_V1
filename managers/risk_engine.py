@@ -607,8 +607,8 @@ def on_ticks(ws, ticks):
 
         try:
             for t in todays_closed:
-                # Skip if already dead
-                if t.get('virtual_sl_hit', False): continue
+                # [CHANGED] Removed the check that skipped updates for 'dead' trades
+                # if t.get('virtual_sl_hit', False): continue 
                 
                 token = t.get('instrument_token')
                 if not token or token not in tick_map: continue
@@ -616,30 +616,33 @@ def on_ticks(ws, ticks):
                 ltp = tick_map[token]
                 t['current_ltp'] = ltp
                 
-                # Add to update list for Socket emission
+                # [CHANGED] Always add to update list so Frontend gets the live price
                 live_closed_updates.append(t) 
                 
-                # Check Virtual SL (Entry vs SL direction)
-                is_dead = False
-                if t['entry_price'] > t['sl']: # BUY
-                     if ltp <= t['sl']: is_dead = True
-                else: # SELL
-                     if ltp >= t['sl']: is_dead = True
-                
-                if is_dead:
-                    t['virtual_sl_hit'] = True
-                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-                    history_updated = True
-                    continue
+                # [CHANGED] Only run the "Logic" (Virtual SL / High Made) if not already dead
+                if not t.get('virtual_sl_hit', False):
+                    
+                    # Check Virtual SL (Entry vs SL direction)
+                    is_dead = False
+                    if t['entry_price'] > t['sl']: # BUY
+                         if ltp <= t['sl']: is_dead = True
+                    else: # SELL
+                         if ltp >= t['sl']: is_dead = True
+                    
+                    if is_dead:
+                        t['virtual_sl_hit'] = True
+                        db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                        history_updated = True
+                        continue # Skip High Check if just died
 
-                # Check High Made
-                current_high = t.get('made_high', t['entry_price'])
-                if ltp > current_high:
-                    t['made_high'] = ltp
-                    try: telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
-                    except: pass
-                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-                    history_updated = True
+                    # Check High Made
+                    current_high = t.get('made_high', t['entry_price'])
+                    if ltp > current_high:
+                        t['made_high'] = ltp
+                        try: telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
+                        except: pass
+                        db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                        history_updated = True
                     
         except Exception as e:
             print(f"Error in History Tracker: {e}")

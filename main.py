@@ -50,7 +50,7 @@ def run_auto_login_process():
     
     if not user_id or not totp_secret:
         login_state = "FAILED"
-        login_error_msg = "Missing Credentials in Config"
+        login_error_msg = "Missing Credentials in Settings -> Auth Config"
         return
 
     login_state = "WORKING"

@@ -31,7 +31,7 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
-# Initial Kite Instance (Uses default config initially, updated via Auth Config)
+# Initial Kite Instance
 kite = KiteConnect(api_key=config.API_KEY)
 
 # --- GLOBAL STATE MANAGEMENT ---
@@ -47,6 +47,12 @@ def run_auto_login_process():
     auth = config_manager.get_auth_config()
     user_id = auth.get("ZERODHA_USER_ID")
     totp_secret = auth.get("TOTP_SECRET")
+    
+    # CRITICAL: Update global kite instance with dynamic API Key
+    # This ensures auto-login uses the NEW key, not the one from config.py
+    dynamic_api_key = auth.get("API_KEY")
+    if dynamic_api_key:
+        kite.api_key = dynamic_api_key
     
     if not user_id or not totp_secret:
         login_state = "FAILED"
@@ -162,6 +168,9 @@ def background_monitor():
                             auth = config_manager.get_auth_config()
                             api_key = auth.get("API_KEY") or config.API_KEY
                             
+                            # Ensure global kite instance also has this key
+                            if api_key: kite.api_key = api_key
+                            
                             risk_engine.start_ticker(api_key, kite.access_token, kite, app, socketio)
                             ticker_started = True
                         
@@ -214,6 +223,14 @@ def background_monitor():
 @app.route('/')
 def home():
     global bot_active, login_state
+    
+    # --- FIX: Ensure Manual Login button uses NEW API Key ---
+    auth = config_manager.get_auth_config()
+    current_api_key = auth.get("API_KEY") or config.API_KEY
+    if current_api_key:
+        kite.api_key = current_api_key # Update global instance
+    # --------------------------------------------------------
+
     if bot_active:
         trades = persistence.load_trades()
         for t in trades: 
@@ -227,6 +244,9 @@ def home():
 def secure_login_page():
     if request.method == 'POST':
         if request.form.get('password') == config.ADMIN_PASSWORD:
+            # Ensure redirect also uses new key
+            auth = config_manager.get_auth_config()
+            if auth.get("API_KEY"): kite.api_key = auth.get("API_KEY")
             return redirect(kite.login_url())
         else:
             return render_template('secure_login.html', error="Invalid Password! Access Denied.")
@@ -234,6 +254,9 @@ def secure_login_page():
 
 @app.route('/api/status')
 def api_status():
+    # Ensure status update sends correct login link
+    auth = config_manager.get_auth_config()
+    if auth.get("API_KEY"): kite.api_key = auth.get("API_KEY")
     return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
 
 @app.route('/reset_connection')
@@ -257,6 +280,10 @@ def callback():
         try:
             # Use dynamic API Secret
             auth = config_manager.get_auth_config()
+            
+            # Ensure kite instance has correct API Key before generating session
+            if auth.get("API_KEY"): kite.api_key = auth.get("API_KEY")
+            
             api_secret = auth.get("API_SECRET") or config.API_SECRET
             
             data = kite.generate_session(t, api_secret=api_secret)
@@ -554,6 +581,12 @@ def api_simulate_scenario():
 
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
+    # --- UPDATE: Ensure login URL is always up to date ---
+    auth = config_manager.get_auth_config()
+    current_api_key = auth.get("API_KEY") or config.API_KEY
+    if current_api_key: kite.api_key = current_api_key
+    # ----------------------------------------------------
+
     response = {
         "status": {
             "active": bot_active, 

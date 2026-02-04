@@ -19,6 +19,13 @@ def get_defaults():
     }
     
     return {
+        "auth_credentials": { # ADD THIS KEY
+            "ZERODHA_USER_ID": "",
+            "ZERODHA_PASSWORD": "",
+            "API_KEY": "",
+            "API_SECRET": "",
+            "TOTP_SECRET": ""
+        },
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
         "watchlist": [],
         # --- NEW: Default Broadcast Channels (Default: All Checked) ---

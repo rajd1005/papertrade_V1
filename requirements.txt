@@ -7,3 +7,4 @@ requests
 eventlet
 pandas
 numpy
+psycopg2-binary

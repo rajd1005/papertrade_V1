@@ -10,6 +10,7 @@ from managers.persistence import load_trades, save_trades, load_history, get_ris
 from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
+from managers.redis_ticker import RedisTicker  # <--- Add this at the top
 
 # --- GLOBAL OBJECTS FOR WEBSOCKET ---
 kws = None
@@ -695,28 +696,21 @@ def subscribe_active_trades(ws):
             # print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).") # Reduced spam
 
 def start_ticker(api_key, access_token, kite_inst, app_inst, socket_inst=None):
-    """
-    Initializes and starts the KiteTicker (or MockTicker).
-    """
     global kws, kite_client, flask_app, socket_io_server
     kite_client = kite_inst
     flask_app = app_inst
-    socket_io_server = socket_inst # Store the SocketIO instance
-    
-    # --- MOCK BROKER DETECTION ---
-    if hasattr(kite_inst, "mock_instruments"):
-        print("⚠️ Starting MOCK Ticker...")
-        from mock_broker import MockKiteTicker
-        kws = MockKiteTicker(api_key, access_token)
-    else:
-        kws = KiteTicker(api_key, access_token)
-    # -----------------------------
+    socket_io_server = socket_inst
 
+    # ALWAYS use RedisTicker for this Paper Trading System
+    print("🔗 Connecting to Market Data Gateway...")
+    kws = RedisTicker()
+
+    # Link the callbacks
     kws.on_ticks = on_ticks
     kws.on_connect = on_connect
     kws.on_close = on_close
-    
-    # Run in a separate thread so it doesn't block Flask
+
+    # Connect
     kws.connect(threaded=True)
     return kws
 

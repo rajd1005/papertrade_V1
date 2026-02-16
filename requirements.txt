@@ -5,3 +5,5 @@ kiteconnect
 redis
 requests
 eventlet
+pandas
+numpy

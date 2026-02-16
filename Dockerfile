@@ -4,7 +4,7 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Install simple dependencies (No Chrome needed!)
+# Install dependencies (Fast!)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
